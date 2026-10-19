@@ -1,24 +1,15 @@
 {
-  "version": 2,
-  "installCommand": "npm install",
-  "buildCommand": "npm run build",
+  "buildCommand": "npm run build && npm --prefix apps/supervisor-pwa run build && mkdir -p apps/api/public && cp -r apps/supervisor-pwa/dist/* apps/api/public/",
   "outputDirectory": "apps/api/public",
-  "functions": {
-    "apps/api/dist/index.js": {
-      "includeFiles": "apps/api/public/**"
-    }
-  },
-  "routes": [
-    { "src": "/api/(.*)", "dest": "apps/api/dist/index.js" },
-    { "src": "/health", "dest": "apps/api/dist/index.js" },
-    { "src": "/api/health", "dest": "apps/api/dist/index.js" },
-    { "src": "/manifest.webmanifest", "dest": "apps/api/public/manifest.webmanifest" },
-    { "src": "/sw.js", "dest": "apps/api/public/sw.js" },
-    { "src": "/assets/(.*)", "dest": "apps/api/public/assets/$1" },
-    { "src": "/(.*)", "dest": "apps/api/public/index.html" }
-  ],
-  "env": {
-    "USE_PGLITE": "true",
-    "SMS_PROVIDER": "mock"
-  }
+  "installCommand": "npm install",
+  "framework": null,
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index.js" },
+    { "source": "/health", "destination": "/api/index.js" },
+    { "source": "/api/health", "destination": "/api/index.js" },
+    { "source": "/assets/:path*", "destination": "/assets/:path*" },
+    { "source": "/manifest.webmanifest", "destination": "/manifest.webmanifest" },
+    { "source": "/sw.js", "destination": "/sw.js" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
