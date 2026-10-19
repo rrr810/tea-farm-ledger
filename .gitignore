@@ -26,3 +26,4 @@ tests/*.d.ts
 vite.config.d.ts.map
 vite.config.js.map
 tests/*.js.map
+*.map
