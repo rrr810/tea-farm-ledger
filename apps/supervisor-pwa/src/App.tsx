@@ -176,9 +176,18 @@ export default function App() {
 
   return (
     <div>
-      <header style={{ background: "#1B5E20", color: "white", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <header style={{ background: "#1B5E20", color: "white", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <h1 style={{ margin: 0, fontSize: 18 }}>Tea Ledger — Supervisor</h1>
-        <span style={{ fontSize: 12 }}>{online ? "Online" : "Offline"} · Farm: <input value={farmId} onChange={e=> saveFarmId(e.target.value)} placeholder="UUID" style={{ width: 180, fontSize: 12, padding: 4 }} /></span>
+        <span style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
+          {online ? "Online" : "Offline"} ·
+          Farm: <input value={farmId} onChange={e=> saveFarmId(e.target.value)} placeholder="UUID" style={{ width: 160, fontSize: 12, padding: 4 }} />
+          <button onClick={async()=>{
+            if(!online){ setMsg("Need online to create farm"); return; }
+            const res=await fetch("/api/farms",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:"Demo Tea Farm"})});
+            const data=await res.json() as {farm_id:string};
+            saveFarmId(data.farm_id); setMsg(`Created farm ${data.farm_id} — workers & kg will auto-save to Postgres (Supabase when you set DATABASE_URL)`);
+          }} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: 0, background: "white", color: "#1B5E20" }}>Create farm</button>
+        </span>
       </header>
       <div style={{ background: "#FFF9C4", border: "1px solid #FBC02D", padding: 8, margin: 12, borderRadius: 8, fontSize: 13 }}>
         DEMO DATA — {online ? "connected" : "offline, will sync when online"} · <strong style={{ color: "#FF6F00" }}>Pending sync: {pending}</strong> {lastSynced ? `· Last synced ${new Date(lastSynced).toLocaleString()}` : ""} {pending>0 && <em> · “pending upload” if Saturday not yet synced</em>}
@@ -199,7 +208,7 @@ export default function App() {
             <label style={{ display: "flex", gap: 8, marginTop: 12, fontSize: 14 }}>
               <input type="checkbox" checked={consent} onChange={e=> setConsent(e.target.checked)} /> I confirm worker agreed to SMS receipts and storage of name/number (Decision 18) — checkbox with timestamp/author
             </label>
-            <button onClick={registerWorker} style={{ marginTop: 12, background: "#2E7D32", color: "white", padding: "14px 18px", borderRadius: 12, border: 0, minHeight: 52, fontSize: 16 }}>Add worker — large button</button>
+            <button onClick={registerWorker} style={{ marginTop: 12, background: "#2E7D32", color: "white", padding: "14px 18px", borderRadius: 12, border: 0, minHeight: 56, fontSize: 18, cursor: "pointer", minWidth: 160, opacity: 1 }}>Add worker</button>
             <p style={{ fontSize: 12, color: "#555" }}>Number reuse allowed only after previous holder inactive + re-verification + Admin notified (Decision 17). Inclusive dates.</p>
           </div>
 
@@ -243,13 +252,14 @@ export default function App() {
             const entry = daily.find(d=> d.worker_id===w.worker_id);
             const kgDisplay = entry && entry.present ? String(entry.kgUnits/10) : "";
             const isAbsent = daily.some(d=> d.worker_id===w.worker_id && !d.present);
+            const inputId = `kg-${w.worker_id}`;
             return (
-              <div key={w.worker_id} style={{ background: "white", border: "2px solid #9CCC65", borderRadius: 12, padding: 12, marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontWeight: 700, flex: 1 }}>{w.full_name}<div style={{ fontWeight: 400, fontSize: 12, color: "#555" }}>{w.phone_e164} · tap to enter kg</div></div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <label style={{ fontSize: 12 }}><input type="checkbox" checked={isAbsent} onChange={e=> setAbsent(w, e.target.checked)} /> Absent (A)</label>
-                  <input inputMode="numeric" placeholder="kg e.g. 40" value={kgDisplay} onChange={e=> setKgForWorker(w, e.target.value)} style={{ width: 110, padding: 12, fontSize: 18, border: "2px solid #1B5E20", borderRadius: 10, background: "#FFFDE7" }} disabled={isAbsent} />
-                  <span style={{ fontSize: 12, color: "#1B5E20" }}>{entry && entry.present ? `= KES ${Math.round(entry.kgUnits/10*9)} (rate 9)` : ""}</span>
+              <div key={w.worker_id} onClick={()=> document.getElementById(inputId)?.focus()} style={{ background: "white", border: "2px solid #9CCC65", borderRadius: 12, padding: 12, marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                <div style={{ fontWeight: 700, flex: 1 }}>{w.full_name}<div style={{ fontWeight: 400, fontSize: 12, color: "#555" }}>{w.phone_e164} · click to enter kg</div></div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }} onClick={e=> e.stopPropagation()}>
+                  <label style={{ fontSize: 12 }}><input type="checkbox" checked={isAbsent} onChange={e=> setAbsent(w, e.target.checked)} /> Absent</label>
+                  <input id={inputId} inputMode="numeric" placeholder="kg e.g. 40" value={kgDisplay} onChange={e=> setKgForWorker(w, e.target.value)} style={{ width: 110, padding: 12, fontSize: 18, border: "2px solid #1B5E20", borderRadius: 10, background: "#FFFDE7" }} disabled={isAbsent} />
+                  <span style={{ fontSize: 12, color: "#1B5E20", minWidth: 70 }}>{entry && entry.present ? `= KES ${Math.round(entry.kgUnits/10*9)} (rate 9)` : ""}</span>
                 </div>
               </div>
             );
