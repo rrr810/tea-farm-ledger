@@ -4,6 +4,7 @@ import fastifyStatic from "@fastify/static";
 import { getDb, runMigrations } from "@tea-ledger/database";
 import { syncRoutes } from "./routes/sync.js";
 import { farmsRoutes } from "./routes/farms.js";
+import { workersRoutes } from "./routes/workers.js";
 import { healthRoutes } from "./routes/health.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,7 @@ export async function buildApp() {
   }
   app.register(healthRoutes);
   app.register(farmsRoutes);
+  app.register(workersRoutes);
   app.register(syncRoutes);
   app.setErrorHandler((err: unknown, _req: unknown, reply: { status: (c: number) => { send: (o: unknown) => void } }) => {
     (app.log as { error: (e: unknown) => void }).error(err);
