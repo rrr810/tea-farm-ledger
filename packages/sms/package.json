@@ -1,0 +1,10 @@
+{
+  "name": "@tea-ledger/sms",
+  "version": "0.2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc --noEmit", "test": "vitest run" },
+  "dependencies": { "@tea-ledger/core": "*" },
+  "devDependencies": { "typescript": "^5.6.3", "vitest": "^2.1.0" }
+}
