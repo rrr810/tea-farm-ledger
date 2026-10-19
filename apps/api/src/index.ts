@@ -1,12 +1,31 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { getDb, runMigrations } from "@tea-ledger/database";
 import { syncRoutes } from "./routes/sync.js";
 import { farmsRoutes } from "./routes/farms.js";
 import { healthRoutes } from "./routes/health.js";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const publicDir = join(__dirname, "../../public"); // dist will adjust, check both
+import { existsSync } from "node:fs";
 export async function buildApp() {
   const app = Fastify({ logger: true });
   await app.register(cors, { origin: true });
+  // Serve PWA static from public if exists (built via vite)
+  const candidates = [publicDir, join(process.cwd(), "apps/api/public"), join(process.cwd(), "public")];
+  for (const dir of candidates) {
+    if (existsSync(join(dir, "index.html"))) {
+      await app.register(fastifyStatic, { root: dir, prefix: "/", wildcard: false, decorateReply: false });
+      // SPA fallback: serve index.html for non-API routes
+      app.get("/*", (req, reply) => {
+        if ((req.url as string).startsWith("/api") || (req.url as string).startsWith("/health")) return reply.callNotFound();
+        return reply.sendFile("index.html");
+      });
+      break;
+    }
+  }
   app.register(healthRoutes);
   app.register(farmsRoutes);
   app.register(syncRoutes);

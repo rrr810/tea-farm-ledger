@@ -23,3 +23,6 @@ vite.config.d.ts
 vite.config.js
 tests/*.js
 tests/*.d.ts
+vite.config.d.ts.map
+vite.config.js.map
+tests/*.js.map
