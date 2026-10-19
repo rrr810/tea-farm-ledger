@@ -1,15 +1,17 @@
 {
-  "buildCommand": "npm run build && npm --prefix apps/supervisor-pwa run build && mkdir -p apps/api/public && cp -r apps/supervisor-pwa/dist/* apps/api/public/",
+  "buildCommand": "npm run build && mkdir -p apps/api/public && cp -r apps/supervisor-pwa/dist/* apps/api/public/",
   "outputDirectory": "apps/api/public",
   "installCommand": "npm install",
   "framework": null,
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "apps/api/dist/**, packages/**, node_modules/**"
+    }
+  },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index.js" },
-    { "source": "/health", "destination": "/api/index.js" },
-    { "source": "/api/health", "destination": "/api/index.js" },
-    { "source": "/assets/:path*", "destination": "/assets/:path*" },
-    { "source": "/manifest.webmanifest", "destination": "/manifest.webmanifest" },
-    { "source": "/sw.js", "destination": "/sw.js" },
+    { "source": "/api/:path*", "destination": "/api" },
+    { "source": "/api/health", "destination": "/api" },
+    { "source": "/health", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
