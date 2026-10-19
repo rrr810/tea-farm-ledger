@@ -32,5 +32,5 @@
     { "path": "apps/api" },
     { "path": "apps/admin-web" }
   ],
-  "exclude": ["node_modules", "dist", "build", ".out", "coverage", ".turbo", "playwright-report", "test-results", "apps/supervisor-pwa"], "build", ".out", "coverage", ".turbo", "playwright-report", "test-results"]
+  "exclude": ["node_modules", "dist", "build", ".out", "coverage", ".turbo", "playwright-report", "test-results", "apps/supervisor-pwa"]
 }
