@@ -1,0 +1,7 @@
+{
+  "name": "@tea-ledger/admin-web",
+  "version": "0.2.0",
+  "type": "module",
+  "private": true,
+  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc --noEmit", "dev": "echo deferred", "test": "echo no tests" }
+}

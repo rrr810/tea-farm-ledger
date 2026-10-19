@@ -1,0 +1,8 @@
+{
+  "builds": [{ "src": "apps/api/src/index.ts", "use": "@vercel/node" }],
+  "routes": [{ "src": "/(.*)", "dest": "apps/api/src/index.ts" }],
+  "env": {
+    "USE_PGLITE": "true",
+    "SMS_PROVIDER": "mock"
+  }
+}

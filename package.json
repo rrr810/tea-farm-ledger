@@ -1,0 +1,20 @@
+{
+  "name": "tea-farm-ledger",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc --build tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev:api": "npm run dev --workspace=@tea-ledger/api",
+    "dev:pwa": "npm run dev --workspace=@tea-ledger/supervisor-pwa",
+    "migrate": "npm run migrate --workspace=@tea-ledger/database"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.0"
+  },
+  "engines": { "node": ">=20" }
+}
