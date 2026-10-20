@@ -219,27 +219,7 @@ export async function createAdjustment(opts: {
     `INSERT INTO audit_log (farm_id, actor, action, target, detail) VALUES ($1,$2,$3,$4,$5::jsonb)`,
     [opts.farmId, "admin", "adjustment.created", opts.workerId, JSON.stringify({ correctionWeekStart: opts.correctionWeekStart, nextWeekStart, kgUnits: opts.kgUnits, reason: opts.reason })],
   );
-  // Notify Owner SMS about correction (best-effort)
-  try {
-    const { getFarmSettings } = await import("@tea-ledger/sms");
-    const settings = await (getFarmSettings as unknown as (id: string) => Promise<{ ownerPhone?: string }>)(opts.farmId);
-    if (settings.ownerPhone) {
-      const { getSmsAdapter } = await import("@tea-ledger/sms");
-      const adapter = getSmsAdapter();
-      await adapter.send({
-        to: settings.ownerPhone,
-        body: `TEA correction applied: ${opts.kgUnits / 10}kg for ${opts.workerId.slice(0, 6)} moved to next week ${nextWeekStart}. Reason: ${opts.reason}`,
-        farmId: opts.farmId,
-        type: "correction-notify",
-      });
-      const { getDb: gdb } = await import("./db.js");
-      const dbs = await gdb();
-      await dbs.query(
-        `INSERT INTO sms_messages (id, farm_id, type, to_phone, body, segments, status, provider_id, job_key)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [crypto.randomUUID(), opts.farmId, "correction-notify", settings.ownerPhone, `TEA correction applied: ${opts.kgUnits / 10}kg for ${opts.workerId.slice(0, 6)} moved to next week ${nextWeekStart}. Reason: ${opts.reason}`, 1, "queued", "mock-correction", `correction:${opts.farmId}:${nextWeekStart}:${opts.workerId}:${id}`],
-      );
-    }
-  } catch {}
+  // Notify Owner SMS about correction (best-effort) — handled in API layer to avoid circular DB→SMS dependency
+  // no-op here; API route will send SMS after createAdjustment if needed
   return { id, nextWeekStart };
 }

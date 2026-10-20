@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run typecheck && npx vite build apps/supervisor-pwa && npx vite build apps/admin-web && mkdir -p apps/api/public && cp -r apps/supervisor-pwa/dist/* apps/api/public/ && mkdir -p apps/api/public/admin && cp -r apps/admin-web/dist/* apps/api/public/admin/",
+  "buildCommand": "npm run vercel-build",
   "outputDirectory": "apps/api/public",
   "installCommand": "npm install",
   "framework": null,

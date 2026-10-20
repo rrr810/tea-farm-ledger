@@ -5,7 +5,7 @@ import type { DbClient } from "@tea-ledger/database";
 import type { FastifyInstance } from "fastify";
 
 let db: DbClient;
-let app: FastifyInstance;
+let app: FastifyInstance | undefined;
 
 beforeAll(async () => {
   // Use test DB via PGlite and ensure env
