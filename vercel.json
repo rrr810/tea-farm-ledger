@@ -16,5 +16,8 @@
   "crons": [
     { "path": "/api/cron/friday-estimate", "schedule": "0 14 * * 5" },
     { "path": "/api/cron/saturday-reminder", "schedule": "30 11 * * 6" }
-  ]
+  ],
+  "env": {
+    "REQUIRED_CRON_SECRET": "true"
+  }
 }
