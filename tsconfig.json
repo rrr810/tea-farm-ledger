@@ -12,24 +12,61 @@
     "sourceMap": true,
     "resolveJsonModule": true,
     "composite": true,
-    "baseUrl": ".",
     "paths": {
-      "@tea-ledger/core": ["packages/core/src/index.ts"],
-      "@tea-ledger/core/*": ["packages/core/src/*"],
-      "@tea-ledger/database": ["packages/database/src/index.ts"],
-      "@tea-ledger/database/*": ["packages/database/src/*"],
-      "@tea-ledger/sms": ["packages/sms/src/index.ts"],
-      "@tea-ledger/sms/*": ["packages/sms/src/*"],
-      "@tea-ledger/config": ["packages/config/src/index.ts"]
+      "@tea-ledger/core": [
+        "./packages/core/src/index.ts"
+      ],
+      "@tea-ledger/core/*": [
+        "./packages/core/src/*"
+      ],
+      "@tea-ledger/database": [
+        "./packages/database/src/index.ts"
+      ],
+      "@tea-ledger/database/*": [
+        "./packages/database/src/*"
+      ],
+      "@tea-ledger/sms": [
+        "./packages/sms/src/index.ts"
+      ],
+      "@tea-ledger/sms/*": [
+        "./packages/sms/src/*"
+      ],
+      "@tea-ledger/config": [
+        "./packages/config/src/index.ts"
+      ]
     },
-    "lib": ["ES2022", "DOM"]
+    "lib": [
+      "ES2022",
+      "DOM"
+    ]
   },
   "references": [
-    { "path": "packages/core" },
-    { "path": "packages/config" },
-    { "path": "packages/database" },
-    { "path": "packages/sms" },
-    { "path": "apps/api" }
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/config"
+    },
+    {
+      "path": "packages/database"
+    },
+    {
+      "path": "packages/sms"
+    },
+    {
+      "path": "apps/api"
+    }
   ],
-  "exclude": ["node_modules", "dist", "build", ".out", "coverage", ".turbo", "playwright-report", "test-results", "apps/supervisor-pwa", "apps/admin-web"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".out",
+    "coverage",
+    ".turbo",
+    "playwright-report",
+    "test-results",
+    "apps/supervisor-pwa",
+    "apps/admin-web"
+  ]
 }

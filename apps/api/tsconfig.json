@@ -1,6 +1,23 @@
 {
   "extends": "../../tsconfig.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src", "composite": true, "baseUrl": ".", "paths": {} },
-  "include": ["src"],
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/database" }, { "path": "../../packages/sms" }]
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true,
+    "paths": {}
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/database"
+    },
+    {
+      "path": "../../packages/sms"
+    }
+  ]
 }
