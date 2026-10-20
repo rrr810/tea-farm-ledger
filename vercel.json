@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npx tsc --build && npx vite build apps/supervisor-pwa && mkdir -p apps/api/public && cp -r apps/supervisor-pwa/dist/* apps/api/public/",
+  "buildCommand": "npx tsc --build && npx vite build apps/supervisor-pwa && npx vite build apps/admin-web && mkdir -p apps/api/public && cp -r apps/supervisor-pwa/dist/* apps/api/public/ && mkdir -p apps/api/public/admin && cp -r apps/admin-web/dist/* apps/api/public/admin/",
   "outputDirectory": "apps/api/public",
   "installCommand": "npm install",
   "framework": null,
@@ -9,6 +9,8 @@
     }
   },
   "rewrites": [
+    { "source": "/admin", "destination": "/admin/index.html" },
+    { "source": "/admin/:path*", "destination": "/admin/:path*" },
     { "source": "/api/:path*", "destination": "/api" },
     { "source": "/health", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }

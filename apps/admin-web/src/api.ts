@@ -1,0 +1,42 @@
+export function token(): string | null { return localStorage.getItem("admin_token"); }
+export function setToken(t: string) { localStorage.setItem("admin_token", t); }
+export function clearToken() { localStorage.removeItem("admin_token"); }
+export function farmId(): string { return localStorage.getItem("farm_id") ?? ""; }
+export function setFarmId(id: string) { localStorage.setItem("farm_id", id); }
+
+async function req(path: string, opts: RequestInit = {}) {
+  const h: Record<string, string> = { "Content-Type": "application/json", ...(opts.headers as Record<string, string> ?? {}) };
+  const t = token();
+  if (t) h["Authorization"] = `Bearer ${t}`;
+  const res = await fetch(path, { ...opts, headers: h });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${txt}`);
+  }
+  const ct = res.headers.get("content-type") ?? "";
+  if (ct.includes("text/csv") || ct.includes("text/html")) return res.text();
+  return res.json();
+}
+
+export const api = {
+  login: (username: string, password: string) => req("/api/admin/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  me: () => req("/api/admin/me"),
+  farms: () => req("/api/farms"),
+  workers: (fid: string) => req(`/api/farms/${fid}/workers`),
+  payroll: (fid: string, weekStart: string) => req(`/api/farms/${fid}/payroll/${weekStart}`),
+  payrollWeeks: (fid: string) => req(`/api/farms/${fid}/payroll`),
+  payrollCsv: (fid: string, weekStart: string) => fetch(`/api/farms/${fid}/payroll/${weekStart}?format=csv`, { headers: { Authorization: `Bearer ${token() ?? ""}` } }).then(r => r.text()),
+  conflicts: (fid: string) => req(`/api/farms/${fid}/conflicts`),
+  corrections: (fid: string) => req(`/api/farms/${fid}/correction-requests`),
+  smsLog: (fid: string) => req(`/api/sms-log?farm_id=${fid}&limit=100`),
+  rates: (fid: string) => req(`/api/farms/${fid}/rates`),
+  setRate: (fid: string, effective_from: string, rate_cents_per_kg: number) => req(`/api/farms/${fid}/rates`, { method: "POST", body: JSON.stringify({ effective_from, rate_cents_per_kg }) }),
+  adjustments: (fid: string) => req(`/api/farms/${fid}/adjustments`),
+  createAdjustment: (fid: string, body: Record<string, unknown>) => req(`/api/farms/${fid}/adjustments`, { method: "POST", body: JSON.stringify(body) }),
+  monthly: (fid: string) => req(`/api/farms/${fid}/reports/monthly`),
+  activeIdle: (fid: string, month: string) => req(`/api/farms/${fid}/reports/active-idle?month=${month}`),
+  hardest: (fid: string, quarter: string) => req(`/api/farms/${fid}/reports/hardest-working?quarter=${quarter}`),
+  auditLog: (fid: string) => req(`/api/farms/${fid}/audit-log`),
+  csvPreview: (fid: string, csv: string) => req(`/api/farms/${fid}/csv-import/preview`, { method: "POST", body: JSON.stringify({ csv }) }),
+  csvCommit: (fid: string, csv: string) => req(`/api/farms/${fid}/csv-import/commit`, { method: "POST", body: JSON.stringify({ csv }) }),
+};
