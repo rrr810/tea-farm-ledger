@@ -12,5 +12,9 @@
     { "source": "/api/:path*", "destination": "/api" },
     { "source": "/health", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron/friday-estimate", "schedule": "0 14 * * 5" },
+    { "path": "/api/cron/saturday-reminder", "schedule": "30 11 * * 6" }
   ]
 }
