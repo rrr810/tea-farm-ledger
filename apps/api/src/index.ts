@@ -9,6 +9,7 @@ import { healthRoutes } from "./routes/health.js";
 import { smsRoutes } from "./routes/sms.js";
 import { cronRoutes } from "./routes/cron.js";
 import { payrollRoutes } from "./routes/payroll.js";
+import { adminRoutes } from "./routes/admin.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,9 +23,15 @@ export async function buildApp() {
   for (const dir of candidates) {
     if (existsSync(join(dir, "index.html"))) {
       await app.register(fastifyStatic, { root: dir, prefix: "/", wildcard: false, decorateReply: false });
-      // SPA fallback: serve index.html for non-API routes
+      // SPA fallback: serve index.html for non-API routes; /admin/* serves admin app
       app.get("/*", (req, reply) => {
-        if ((req.url as string).startsWith("/api") || (req.url as string).startsWith("/health")) return reply.callNotFound();
+        const url = req.url as string;
+        if (url.startsWith("/api") || url.startsWith("/health")) return reply.callNotFound();
+        if (url.startsWith("/admin")) {
+          // Let fastify-static serve /admin assets if file exists, else fallback to admin/index.html
+          if (existsSync(join(dir, "admin", "index.html"))) return reply.sendFile("admin/index.html");
+          return reply.callNotFound();
+        }
         return reply.sendFile("index.html");
       });
       break;
@@ -37,6 +44,7 @@ export async function buildApp() {
   app.register(smsRoutes);
   app.register(cronRoutes);
   app.register(payrollRoutes);
+  app.register(adminRoutes);
   app.setErrorHandler((err: unknown, _req: unknown, reply: { status: (c: number) => { send: (o: unknown) => void } }) => {
     (app.log as { error: (e: unknown) => void }).error(err);
     const msg = err instanceof Error ? err.message : String(err);

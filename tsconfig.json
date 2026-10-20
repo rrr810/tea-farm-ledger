@@ -29,8 +29,7 @@
     { "path": "packages/config" },
     { "path": "packages/database" },
     { "path": "packages/sms" },
-    { "path": "apps/api" },
-    { "path": "apps/admin-web" }
+    { "path": "apps/api" }
   ],
-  "exclude": ["node_modules", "dist", "build", ".out", "coverage", ".turbo", "playwright-report", "test-results", "apps/supervisor-pwa"]
+  "exclude": ["node_modules", "dist", "build", ".out", "coverage", ".turbo", "playwright-report", "test-results", "apps/supervisor-pwa", "apps/admin-web"]
 }
