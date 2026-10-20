@@ -8,6 +8,7 @@ import { workersRoutes } from "./routes/workers.js";
 import { healthRoutes } from "./routes/health.js";
 import { smsRoutes } from "./routes/sms.js";
 import { cronRoutes } from "./routes/cron.js";
+import { payrollRoutes } from "./routes/payroll.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,7 @@ export async function buildApp() {
   app.register(syncRoutes);
   app.register(smsRoutes);
   app.register(cronRoutes);
+  app.register(payrollRoutes);
   app.setErrorHandler((err: unknown, _req: unknown, reply: { status: (c: number) => { send: (o: unknown) => void } }) => {
     (app.log as { error: (e: unknown) => void }).error(err);
     const msg = err instanceof Error ? err.message : String(err);
