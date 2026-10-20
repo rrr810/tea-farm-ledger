@@ -67,6 +67,9 @@
     "playwright-report",
     "test-results",
     "apps/supervisor-pwa",
-    "apps/admin-web"
+    "apps/admin-web",
+    "tests",
+    "vitest.config.ts",
+    "scripts"
   ]
 }
