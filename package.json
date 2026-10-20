@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "typecheck": "tsc --build tsconfig.json",
+    "typecheck": "npx --yes --package=typescript tsc --build tsconfig.json",
     "vercel-build": "npm run typecheck && npm run build:pwa && npm run build:admin && npm run build:api-public",
     "test": "vitest run",
     "test:watch": "vitest",
