@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npx --yes --package=typescript tsc --build tsconfig.json",
     "typecheck": "npx --yes --package=typescript tsc --build tsconfig.json",
     "vercel-build": "npm run build && npm run build:pwa && npm run build:admin && npm run build:api-public",
     "test": "vitest run",
@@ -16,8 +16,8 @@
     "dev:pwa": "npm run dev --workspace=@tea-ledger/supervisor-pwa",
     "dev:admin": "npm run dev --workspace=@tea-ledger/admin-web",
     "seed": "tsx scripts/seed-demo.ts",
-    "build:pwa": "vite build apps/supervisor-pwa",
-    "build:admin": "vite build apps/admin-web",
+    "build:pwa": "npx --yes vite build apps/supervisor-pwa",
+    "build:admin": "npx --yes vite build apps/admin-web",
     "build:api-public": "mkdir -p apps/api/public && cp -r apps/supervisor-pwa/dist/* apps/api/public/ && mkdir -p apps/api/public/admin && cp -r apps/admin-web/dist/* apps/api/public/admin/",
     "migrate": "npm run migrate --workspace=@tea-ledger/database"
   },
