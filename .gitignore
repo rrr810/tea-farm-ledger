@@ -29,3 +29,8 @@ tests/*.js.map
 *.map
 apps/supervisor-pwa/src/*.js
 apps/supervisor-pwa/dist
+apps/api/public
+apps/admin-web/dist
+scripts/*.js
+scripts/*.d.ts
+scripts/*.js.map
