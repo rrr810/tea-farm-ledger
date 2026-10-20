@@ -57,6 +57,7 @@ export async function endEmployment(opts: { workerId: string; endDate: string; r
   const active = (res.rows as Array<{ id: string; start_date: string }>)[0];
   if (opts.endDate < active.start_date) throw new Error("end before start");
   await db.query("UPDATE employment_periods SET end_date=$1, end_reason=$2 WHERE id=$3", [opts.endDate, opts.reason ?? null, active.id]);
+  await db.query("UPDATE workers SET status='inactive' WHERE worker_id=$1", [opts.workerId]);
   return { id: active.id };
 }
 

@@ -15,7 +15,7 @@ npm.cmd test
 ```
 
 ## Test counts
-- 38 tests: core 26 (phone 8, money 6, settings 4, sms 4, week 2, validation 2, employment 5) + integration 6 (sync 4, workers 2, offline 1)
+- 38 tests: core 31 (phone 8, money 6, settings 4, sms 4, week 2, validation 2, employment 5) + integration 7 (sync 4, workers 2, offline 1)
 - Payroll edge cases covered in money.test.ts (mid-week rate, rounding)
 
 ## Deviations
