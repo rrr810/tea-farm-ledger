@@ -3,6 +3,53 @@ import { api, token, setToken, clearToken, farmId, setFarmId } from "./api.js";
 
 type Tab = "login" | "dashboard" | "workers" | "payroll" | "conflicts" | "sms" | "reports" | "import" | "settings" | "audit";
 
+// ---- reporting helpers (quarter math + lightweight SVG charts, no deps) ----
+function quarterLabel(d = new Date()): string {
+  return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+}
+function lastQuarters(n: number): string[] {
+  const out: string[] = [];
+  const d = new Date();
+  for (let i = 0; i < n; i++) {
+    out.push(quarterLabel(d));
+    d.setMonth(d.getMonth() - 3);
+  }
+  return out;
+}
+function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div style={{ background: "#FFFDF6", border: "1px solid #D9D2BC", borderRadius: 12, padding: "12px 14px" }}>
+      <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", color: "#4A4A42", fontWeight: 700 }}>{label}</div>
+      <div style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 20, fontWeight: 700, color: "#1F4D2B", margin: "4px 0 2px" }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: "#6B6B5E" }}>{sub}</div>}
+    </div>
+  );
+}
+function BarChart({ data, color }: { data: Array<{ label: string; value: number }>; color: string }) {
+  if (data.length === 0) return <p style={{ fontSize: 12, color: "#6B6B5E" }}>No data yet.</p>;
+  const w = 560, h = 190, pad = 30;
+  const max = Math.max(1, ...data.map(d => d.value));
+  const slot = (w - pad * 2) / data.length;
+  const bw = Math.min(56, slot - 10);
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", maxWidth: 640, display: "block" }} role="img">
+      <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="#D9D2BC" strokeWidth="1.5" />
+      {data.map((d, i) => {
+        const bh = Math.max(2, Math.round(((h - pad * 2) * d.value) / max));
+        const x = pad + i * slot + (slot - bw) / 2;
+        const y = h - pad - bh;
+        return (
+          <g key={d.label}>
+            <rect x={x} y={y} width={bw} height={bh} rx="6" fill={color} />
+            <text x={x + bw / 2} y={y - 6} textAnchor="middle" fontSize="11" fontWeight={700} fill="#23231F">{d.value.toLocaleString()}</text>
+            <text x={x + bw / 2} y={h - pad + 15} textAnchor="middle" fontSize="11" fill="#4A4A42">{d.label}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>(token() ? "dashboard" : "login");
   const [msg, setMsg] = useState("");
@@ -23,6 +70,7 @@ export default function App() {
   const [smsLog, setSmsLog] = useState<unknown[]>([]);
   const [monthly, setMonthly] = useState<unknown[]>([]);
   const [hardest, setHardest] = useState<unknown[]>([]);
+  const [quarter, setQuarter] = useState(() => quarterLabel());
   const [audit, setAudit] = useState<unknown[]>([]);
   const [rates, setRates] = useState<unknown[]>([]);
   const [csvText, setCsvText] = useState("worker_id,full_name,phone_e164,business_date,kg_units,present,is_plucking_day\n");
@@ -55,7 +103,7 @@ export default function App() {
         api.corrections(currentFarm) as Promise<{ corrections: unknown[] }>,
         api.smsLog(currentFarm) as Promise<{ messages: unknown[] }>,
         api.monthly(currentFarm) as Promise<{ monthly: unknown[] }>,
-        api.hardest(currentFarm, "2026-Q4") as Promise<{ ranking: unknown[] }>,
+        api.hardest(currentFarm, quarter) as Promise<{ ranking: unknown[] }>,
         api.auditLog(currentFarm) as Promise<{ logs: unknown[] }>,
         api.rates(currentFarm) as Promise<{ rates: unknown[] }>,
       ]);
@@ -63,7 +111,7 @@ export default function App() {
     } catch (e) { toast(String(e)); }
   }
 
-  useEffect(() => { if (currentFarm) loadDashboard(); }, [currentFarm, tab]);
+  useEffect(() => { if (currentFarm) loadDashboard(); }, [currentFarm, tab, quarter]);
   useEffect(() => { loadFarms(); }, []);
 
   async function loadPayroll() {
@@ -197,21 +245,49 @@ export default function App() {
     </div>}
 
     {tab === "reports" && <div className="card">
-      <h3>Reports — monthly, rolling 3-month, quarterly ranking</h3>
-      <h4>Monthly kg & payroll</h4>
-      <table><thead><tr><th>Month</th><th>Total kg</th><th>Payroll KES</th><th>Workers</th></tr></thead><tbody>
-        {(monthly as Array<{ month: string; total_kg: number; payroll_kes: number; active_workers: number }>).map(m => (
-          <tr key={m.month}><td>{m.month}</td><td>{m.total_kg}</td><td>{m.payroll_kes}</td><td>{m.active_workers}</td></tr>
-        ))}
-      </tbody></table>
-      <h4>Hardest-working Ranking (Quarter 2026-Q4) — 3 measures</h4>
-      <p style={{ fontSize: 12, color: "#4A4A42" }}>Total kg, avg kg per attended plucking day, attendance rate (plucking days during active employment). kg does not reflect leaf quality — rankings only.</p>
-      <table><thead><tr><th>Rank</th><th>Worker</th><th>Total kg</th><th>Avg kg/day</th><th>Attendance</th></tr></thead><tbody>
-        {(hardest as Array<{ name: string; total_kg: number; avg_kg_per_day: number; attendance_rate: number | null; days_attended: number; attendance_denom: number }>).map((h, i) => (
-          <tr key={h.name}><td>#{i + 1}</td><td>{h.name}</td><td>{h.total_kg}</td><td>{h.avg_kg_per_day}</td><td>{h.attendance_rate !== null ? `${(h.attendance_rate * 100).toFixed(1)}% (${h.days_attended}/${h.attendance_denom})` : "-"}</td></tr>
-        ))}
-        {hardest.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#6B6B5E" }}>No data for quarter</td></tr>}
-      </tbody></table>
+      <h3>Reports — quarterly & monthly</h3>
+      {(() => {
+        const rows = monthly as Array<{ month: string; total_kg: number; payroll_kes: number; active_workers: number }>;
+        const bestMonth = rows.length ? rows.reduce((a, b) => (b.total_kg > a.total_kg ? b : a)) : null;
+        const last3 = rows.slice(-3);
+        const kg3 = last3.reduce((s, m) => s + (Number(m.total_kg) || 0), 0);
+        const pay3 = last3.reduce((s, m) => s + (Number(m.payroll_kes) || 0), 0);
+        const top = (hardest as Array<{ name: string; total_kg: number; avg_kg_per_day: number; attendance_rate: number | null; days_attended: number; attendance_denom: number }>)[0];
+        return (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, margin: "10px 0 16px" }}>
+              <StatCard label="Best month" value={bestMonth ? String(bestMonth.month) : "—"} sub={bestMonth ? `${Number(bestMonth.total_kg).toLocaleString()} kg picked` : "no data yet"} />
+              <StatCard label="Hardest worker" value={top ? top.name : "—"} sub={top ? `${Number(top.total_kg).toLocaleString()} kg · ${Number(top.avg_kg_per_day).toFixed(1)} kg/day` : `no data for ${quarter}`} />
+              <StatCard label="Last 3 months" value={`${kg3.toLocaleString()} kg`} sub={`KES ${pay3.toLocaleString()} payroll`} />
+              <StatCard label="Months recorded" value={String(rows.length)} sub={`${rows.reduce((s, m) => s + (Number(m.active_workers) || 0), 0) ? "worker-months of activity" : "and counting"}`} />
+            </div>
+            <h4>Total kg by month</h4>
+            <BarChart data={rows.map(m => ({ label: String(m.month), value: Number(m.total_kg) || 0 }))} color="#2D6A3E" />
+            <h4>Payroll by month (KES)</h4>
+            <BarChart data={rows.map(m => ({ label: String(m.month), value: Number(m.payroll_kes) || 0 }))} color="#E3A72F" />
+            <h4 style={{ marginTop: 18 }}>Monthly detail</h4>
+            <table><thead><tr><th>Month</th><th>Total kg</th><th>Payroll KES</th><th>Workers</th></tr></thead><tbody>
+              {rows.map(m => (
+                <tr key={m.month}><td>{m.month}</td><td>{Number(m.total_kg).toLocaleString()}</td><td>{Number(m.payroll_kes).toLocaleString()}</td><td>{m.active_workers}</td></tr>
+              ))}
+              {rows.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", color: "#6B6B5E" }}>No data yet</td></tr>}
+            </tbody></table>
+            <h4 style={{ marginTop: 18 }}>
+              Hardest-working ranking —{" "}
+              <select value={quarter} onChange={e => setQuarter(e.target.value)} style={{ fontSize: 14, padding: "4px 8px", borderRadius: 8, border: "1px solid #D9D2BC", background: "#FFFDF6", color: "#23231F" }}>
+                {lastQuarters(8).map(q => <option key={q} value={q}>{q}</option>)}
+              </select>
+            </h4>
+            <p style={{ fontSize: 12, color: "#4A4A42" }}>Three measures side by side: total kg, avg kg per attended plucking day, attendance rate (plucking days during active employment). Kg does not reflect leaf quality — ranking only.</p>
+            <table><thead><tr><th>Rank</th><th>Worker</th><th>Total kg</th><th>Avg kg/day</th><th>Attendance</th></tr></thead><tbody>
+              {(hardest as Array<{ name: string; total_kg: number; avg_kg_per_day: number; attendance_rate: number | null; days_attended: number; attendance_denom: number }>).map((h, i) => (
+                <tr key={h.name}><td>#{i + 1}</td><td>{h.name}</td><td>{Number(h.total_kg).toLocaleString()}</td><td>{Number(h.avg_kg_per_day).toFixed(1)}</td><td>{h.attendance_rate !== null ? `${(h.attendance_rate * 100).toFixed(1)}% (${h.days_attended}/${h.attendance_denom})` : "-"}</td></tr>
+              ))}
+              {hardest.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#6B6B5E" }}>No data for quarter</td></tr>}
+            </tbody></table>
+          </>
+        );
+      })()}
     </div>}
 
     {tab === "import" && <div className="card">
