@@ -7,8 +7,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npx --yes --package=typescript tsc --build tsconfig.json",
-    "typecheck": "npx --yes --package=typescript tsc --build tsconfig.json",
+    "build": "tsc --build tsconfig.json",
+    "typecheck": "tsc --build tsconfig.json",
     "vercel-build": "npm run build && npm run build:pwa && npm run build:admin && npm run build:api-public",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -24,7 +24,8 @@
   "devDependencies": {
     "tsx": "^4.23.15",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "@types/node": "^20.14.0"
   },
   "engines": {
     "node": ">=20"

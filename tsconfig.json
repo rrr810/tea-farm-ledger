@@ -71,5 +71,6 @@
     "tests",
     "vitest.config.ts",
     "scripts"
-  ]
+  ],
+  "files": []
 }

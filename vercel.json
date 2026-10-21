@@ -1,7 +1,7 @@
 {
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "apps/api/public",
-  "installCommand": "npm install",
+  "installCommand": "npm install --include=dev",
   "framework": null,
   "functions": {
     "api/index.js": {
@@ -9,15 +9,36 @@
     }
   },
   "rewrites": [
-    { "source": "/admin", "destination": "/admin/index.html" },
-    { "source": "/admin/:path*", "destination": "/admin/:path*" },
-    { "source": "/api/:path*", "destination": "/api" },
-    { "source": "/health", "destination": "/api" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/admin",
+      "destination": "/admin/index.html"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "/admin/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "crons": [
-    { "path": "/api/cron/friday-estimate", "schedule": "0 14 * * 5" },
-    { "path": "/api/cron/saturday-reminder", "schedule": "30 11 * * 6" }
+    {
+      "path": "/api/cron/friday-estimate",
+      "schedule": "0 14 * * 5"
+    },
+    {
+      "path": "/api/cron/saturday-reminder",
+      "schedule": "30 11 * * 6"
+    }
   ],
   "env": {
     "REQUIRED_CRON_SECRET": "true"
