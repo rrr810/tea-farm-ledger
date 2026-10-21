@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 export default defineConfig({
+  base: "/admin/", // admin is served under /admin on the API's static host — assets must resolve there too
   plugins: [react()],
   server: {
     host: "0.0.0.0",
