@@ -40,6 +40,22 @@ export async function updateFarmSettings(farmId: string, patch: Partial<FarmSett
   return merged;
 }
 
+/**
+ * Apply a provider delivery-report callback to a stored SMS (matched by provider_id).
+ * Telnyx posts message lifecycle events (message.sent / message.delivered /
+ * message.finalized); the terminal status rides on data.to[].status. We map those
+ * onto our sms_messages.status values. Unknown provider ids no-op (idempotent).
+ */
+export async function applyDeliveryReport(
+  providerId: string,
+  status: "queued" | "sent" | "delivered" | "failed",
+  dbClient?: Awaited<ReturnType<typeof getDb>>,
+): Promise<number> {
+  const db = dbClient ?? (await getDb());
+  const res = await db.query("UPDATE sms_messages SET status=$1 WHERE provider_id=$2", [status, providerId]);
+  return res.rowCount ?? 0;
+}
+
 async function insertSmsIfNotExists(opts: {
   farmId: string;
   jobKey: string;

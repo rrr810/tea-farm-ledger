@@ -70,3 +70,22 @@ describe("telnyx adapter", () => {
     await expect(adapter.send({ to: "+254712345678", body: "hi", farmId: "f1", type: "daily-owner" })).rejects.toThrow(/telnyx send failed/);
   });
 });
+
+describe("delivery reports (matched by provider_id)", () => {
+  it("updates status on the stored SMS and no-ops for unknown ids", async () => {
+    const { createTestDb, runMigrations } = await import("@tea-ledger/database");
+    const { applyDeliveryReport } = await import("../packages/sms/src/scheduler.js");
+    const db = await createTestDb();
+    await runMigrations(db);
+    await db.query("INSERT INTO farms (farm_id, name) VALUES ('00000000-0000-4000-a000-0000000000cc','DLR Farm')");
+    await db.query(
+      "INSERT INTO sms_messages (id, farm_id, type, to_phone, body, segments, status, provider_id, job_key) VALUES ('00000000-0000-4000-a000-0000000000dd','00000000-0000-4000-a000-0000000000cc','daily-owner','+254712345678','hello',1,'queued','telnyx-msg-1','k1')",
+    );
+    const n = await applyDeliveryReport("telnyx-msg-1", "delivered", db as never);
+    expect(n).toBe(1);
+    const row = (await db.query("SELECT status FROM sms_messages WHERE provider_id='telnyx-msg-1'")).rows[0] as { status: string };
+    expect(row.status).toBe("delivered");
+    expect(await applyDeliveryReport("nope", "failed", db as never)).toBe(0);
+    if (db?.end) await db.end();
+  });
+});
