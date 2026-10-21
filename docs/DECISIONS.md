@@ -34,4 +34,16 @@ These are our interpretations for unspecified points. Ryan's authoritative decis
 - **Choice:** `CRON_SECRET` env var, `REQUIRED_CRON_SECRET=true` enforces it; without it we fail closed in prod (`NODE_ENV=production` + `VERCEL_ENV` checks).
 - **Why:** Prevent open cron abuse in production; keep preview open for testing (configurable).
 
-*Add new judgements here as we make them, one row each, not as prose.*
+## J8 — Anomaly baseline computed from events
+- **Choice:** The trailing-4-week baseline (APPROVED decision 11) is computed from the append-only events plus that week's `adjustments`, using the shared core path (`rateForDate` + `calculateWorkerWeekPayCents`) — never a duplicated formula. `payroll_lines` is kept as the persisted record for admin monthly reports only.
+- **Why:** The previous code read `payroll_lines` first and silently skipped computation when none existed (cold start, first view, seeded demo) — so every worker was permanently flagged "limited history" and the >50% deviation check never ran. Events are the stable source: locked weeks can only gain correction-flagged rows, which are excluded. Weeks with no entries are excluded from the baseline (decision 11).
+- **Alternative considered:** Lazily back-fill `payroll_lines` before computing flags — rejected because stored lines cannot distinguish "no entries" weeks from present-with-zero-kg weeks, breaking decision 11's exclusion rule.
+- **Where:** `packages/database/src/payroll.ts#getPayrollData` prior-week loop; regression tests `tests/anomaly-baseline.test.ts`.
+
+## J9 — Correction-flagged events are never applied to derived state
+- **Choice:** Every state-deriving query over `pluck.logged` (payroll sheet, SMS figures, admin reports/rankings) filters `correction_flag = false`. Ingest-side checks (same-day conflict detection, CSV import duplicate check) still see all events.
+- **Why:** APPROVED decision 2 says late events for a locked week are kept and flagged as correction requests and only applied as adjustments to the next week. The queries previously ignored the flag, so a late entry would be silently applied to the locked week's sheet and SMS — and the first view would freeze it into `payroll_lines`.
+- **Where:** `packages/database/src/payroll.ts`, `packages/sms/src/scheduler.ts` (6 queries), `apps/api/src/routes/admin.ts` (3 report queries).
+
+## Open question
+- **Unresolved same-worker/same-day conflicts are counted twice in derivation.** Per decision 20 conflicts are surfaced and resolved by a new event; until resolution, both entries currently sum into the sheet. Rare in Phase 1 (one supervisor device; the PWA edits rather than duplicates), but worth an explicit rule before the December demo: last-entry-wins for display, or exclude the conflict-flagged one?

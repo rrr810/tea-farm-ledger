@@ -95,7 +95,7 @@ export async function sendDailyOwnerSms(opts: { farmId: string; date: string }) 
   // Gather plucks for date
   const plucks = await db.query(
     `SELECT payload->>'worker_id' as worker_id, payload->>'kg_units' as kg_units, payload->>'present' as present
-     FROM events WHERE farm_id=$1 AND business_date=$2 AND event_type='pluck.logged'`,
+     FROM events WHERE farm_id=$1 AND business_date=$2 AND event_type='pluck.logged' AND correction_flag = false`,
     [farmId, date],
   );
   const dayInfo = await db.query(
@@ -179,7 +179,7 @@ export async function sendFridayEstimate(opts: { farmId: string; weekStart: stri
   const db = await getDb();
   // Mon-Fri of week
   const totalRes = await db.query(
-    `SELECT SUM((payload->>'kg_units')::int) as sum FROM events WHERE farm_id=$1 AND business_date >= $2 AND business_date <= $3 AND event_type='pluck.logged'`,
+    `SELECT SUM((payload->>'kg_units')::int) as sum FROM events WHERE farm_id=$1 AND business_date >= $2 AND business_date <= $3 AND event_type='pluck.logged' AND correction_flag = false`,
     [farmId, weekStart, addDays(weekStart, 4)],
   );
   const sum = (totalRes.rows as Array<{ sum: string | null }>)[0]?.sum;
@@ -230,7 +230,7 @@ export async function sendWeeklyReceipts(opts: { farmId: string; weekStart: stri
   const db = await getDb();
   // Find all workers active in week
   const workersRes = await db.query(
-    `SELECT DISTINCT payload->>'worker_id' as wid FROM events WHERE farm_id=$1 AND business_date >= $2 AND business_date <= $3 AND event_type='pluck.logged'`,
+    `SELECT DISTINCT payload->>'worker_id' as wid FROM events WHERE farm_id=$1 AND business_date >= $2 AND business_date <= $3 AND event_type='pluck.logged' AND correction_flag = false`,
     [farmId, weekStart, weekEnd],
   );
   const results: Array<{ workerId: string; sent: boolean; jobKey: string }> = [];
@@ -256,7 +256,7 @@ export async function sendWeeklyReceipts(opts: { farmId: string; weekStart: stri
         continue;
       }
       const pluck = await db.query(
-        `SELECT payload->>'kg_units' as kg_units, payload->>'present' as present FROM events WHERE farm_id=$1 AND business_date=$2 AND payload->>'worker_id'=$3 AND event_type='pluck.logged' LIMIT 1`,
+        `SELECT payload->>'kg_units' as kg_units, payload->>'present' as present FROM events WHERE farm_id=$1 AND business_date=$2 AND payload->>'worker_id'=$3 AND event_type='pluck.logged' AND correction_flag = false LIMIT 1`,
         [farmId, d, wid],
       );
       const row = (pluck.rows as Array<{ kg_units: string; present: string }>)[0];
@@ -266,7 +266,7 @@ export async function sendWeeklyReceipts(opts: { farmId: string; weekStart: stri
     }
     // Total kg + amount
     const kgRes = await db.query(
-      `SELECT SUM((payload->>'kg_units')::int) as sum FROM events WHERE farm_id=$1 AND payload->>'worker_id'=$2 AND business_date >= $3 AND business_date <= $4 AND event_type='pluck.logged'`,
+      `SELECT SUM((payload->>'kg_units')::int) as sum FROM events WHERE farm_id=$1 AND payload->>'worker_id'=$2 AND business_date >= $3 AND business_date <= $4 AND event_type='pluck.logged' AND correction_flag = false`,
       [farmId, wid, weekStart, weekEnd],
     );
     const totalKgUnits = Number((kgRes.rows as Array<{ sum: string }>)[0]?.sum ?? 0);
@@ -279,7 +279,7 @@ export async function sendWeeklyReceipts(opts: { farmId: string; weekStart: stri
     // Calculate pay using core helper (one half-up rounding)
     const { calculateWorkerWeekPayKes } = await import("@tea-ledger/core");
     const allPlucks = await db.query(
-      `SELECT payload->>'kg_units' as kg_units FROM events WHERE farm_id=$1 AND payload->>'worker_id'=$2 AND business_date >= $3 AND business_date <= $4 AND event_type='pluck.logged'`,
+      `SELECT payload->>'kg_units' as kg_units FROM events WHERE farm_id=$1 AND payload->>'worker_id'=$2 AND business_date >= $3 AND business_date <= $4 AND event_type='pluck.logged' AND correction_flag = false`,
       [farmId, wid, weekStart, weekEnd],
     );
     const payEntries = (allPlucks.rows as Array<{ kg_units: string }>).map((r) => ({

@@ -1,5 +1,6 @@
 import { getDb } from "./db.js";
 import type { RateEntry, PluckEntry, WorkerInfo, Adjustment } from "@tea-ledger/core";
+import { rateForDate, calculateWorkerWeekPayCents, getWeekEndSaturday } from "@tea-ledger/core";
 
 export async function getPayrollData(opts: {
   farmId: string;
@@ -46,10 +47,11 @@ export async function getPayrollData(opts: {
     });
   }
 
-  // Plucks: all pluck.logged in week
+  // Plucks: all pluck.logged in week. Correction-flagged events (late arrivals for
+  // locked weeks) are kept in the log but NEVER applied to the sheet (APPROVED decision 2).
   const pluckRes = await db.query(
     `SELECT payload->>'worker_id' as worker_id, business_date, payload->>'kg_units' as kg_units, payload->>'present' as present
-     FROM events WHERE farm_id=$1 AND business_date >= $2 AND business_date <= $3 AND event_type='pluck.logged'`,
+     FROM events WHERE farm_id=$1 AND business_date >= $2 AND business_date <= $3 AND event_type='pluck.logged' AND correction_flag = false`,
     [farmId, weekStart, weekEnd],
   );
   const plucksByWorker = new Map<string, PluckEntry[]>();
@@ -121,19 +123,52 @@ export async function getPayrollData(opts: {
     }
   }
 
-  // For each prior week, compute amount per worker from payroll_lines OR from events if not yet computed (fallback to events)
-  // We use payroll_lines if exists, else we compute on fly from events for that week (but for M6 we will have payroll_lines after first compute)
+  // For each prior week, compute per-worker amounts from the append-only events
+  // (plus that week's adjustments) using the SAME core money path as the live sheet
+  // (rateForDate + calculateWorkerWeekPayCents). This keeps offline estimates, the
+  // server sheet and the anomaly baseline in agreement (AGENTS.md: never duplicate
+  // the pay calculation). Per APPROVED decision 11, weeks with no employment or no
+  // entries are excluded from the baseline; correction-flagged events never count.
   for (const pw of priorWeeks.slice(0, 4).reverse()) {
-    // Try payroll_lines first
-    const plRes = await db.query("SELECT worker_id, amount_cents FROM payroll_lines WHERE farm_id=$1 AND week_start=$2", [farmId, pw]);
-    if ((plRes.rows as unknown[]).length > 0) {
-      for (const r of plRes.rows as Array<{ worker_id: string; amount_cents: number }>) {
-        const arr = priorAmountsByWorker.get(r.worker_id) ?? [];
-        arr.push(Math.round(r.amount_cents / 100));
-        priorAmountsByWorker.set(r.worker_id, arr);
-      }
-    } else {
-      // Fallback: compute from events? We'll skip for now, just leave prior history limited
+    const pwEnd = getWeekEndSaturday(pw);
+    const evRes = await db.query(
+      `SELECT payload->>'worker_id' AS worker_id, business_date, payload->>'kg_units' AS kg_units, payload->>'present' AS present
+       FROM events
+       WHERE farm_id=$1 AND business_date >= $2 AND business_date <= $3
+         AND event_type='pluck.logged' AND correction_flag = false`,
+      [farmId, pw, pwEnd],
+    );
+    const pwAdjRes = await db.query(
+      "SELECT worker_id, kg_units, rate_cents_per_kg FROM adjustments WHERE farm_id=$1 AND week_start=$2",
+      [farmId, pw],
+    );
+    const payByWorker = new Map<string, Array<{ kgUnits: number; rateCentsPerKg: number }>>();
+    const hadData = new Set<string>();
+    for (const r of evRes.rows as Array<{ worker_id: string | null; business_date: string; kg_units: string | null; present: string | null }>) {
+      const wid = r.worker_id;
+      if (!wid) continue;
+      hadData.add(wid); // any pluck entry (even absent) means the worker had entries this week
+      const present = r.present !== "false"; // default true if missing
+      if (!present) continue;
+      const kgUnits = r.kg_units !== null ? Number(r.kg_units) : 0;
+      if (!Number.isFinite(kgUnits) || kgUnits <= 0) continue;
+      const bdate = typeof r.business_date === "string" ? r.business_date.slice(0, 10) : new Date(r.business_date).toISOString().slice(0, 10);
+      const arr = payByWorker.get(wid) ?? [];
+      arr.push({ kgUnits, rateCentsPerKg: rateForDate(bdate, rates) });
+      payByWorker.set(wid, arr);
+    }
+    for (const a of pwAdjRes.rows as Array<{ worker_id: string; kg_units: number; rate_cents_per_kg: number }>) {
+      hadData.add(a.worker_id);
+      const arr = payByWorker.get(a.worker_id) ?? [];
+      arr.push({ kgUnits: Number(a.kg_units), rateCentsPerKg: Number(a.rate_cents_per_kg) });
+      payByWorker.set(a.worker_id, arr);
+    }
+    for (const wid of hadData) {
+      const payEntries = payByWorker.get(wid) ?? [];
+      const amountCents = payEntries.length > 0 ? calculateWorkerWeekPayCents(payEntries) : 0;
+      const arr = priorAmountsByWorker.get(wid) ?? [];
+      arr.push(Math.round(amountCents / 100));
+      priorAmountsByWorker.set(wid, arr);
     }
   }
 
