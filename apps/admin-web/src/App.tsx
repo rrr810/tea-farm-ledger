@@ -84,15 +84,15 @@ export default function App() {
   function logout() { clearToken(); setTab("login"); toast("Logged out"); }
 
   if (tab === "login") {
-    return <div style={{ maxWidth: 400, margin: "60px auto", background: "white", padding: 24, borderRadius: 12, border: "1px solid #DDD" }}>
-      <h2 style={{ margin: 0 }}>Admin Login</h2><p style={{ color: "#666", fontSize: 13 }}>Password from ADMIN_DEFAULT_PASSWORD (default tea-admin-2026 in dev). Session 7d. No MFA (deferred per Decision 22).</p>
+    return <div style={{ maxWidth: 400, margin: "60px auto", background: "#FFFDF6", padding: 24, borderRadius: 12, border: "1px solid #D9D2BC" }}>
+      <h2 style={{ margin: 0 }}>Admin Login</h2><p style={{ color: "#4A4A42", fontSize: 13 }}>Password from ADMIN_DEFAULT_PASSWORD (default tea-admin-2026 in dev). Session 7d. No MFA (deferred per Decision 22).</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
         <input placeholder="username" value={username} onChange={e => setUsername(e.target.value)} />
         <input placeholder="password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
         <button className="primary" onClick={doLogin}>Login</button>
       </div>
       {msg && <div style={{ marginTop: 10, color: "#C62828", fontSize: 13 }}>{msg}</div>}
-      <p style={{ fontSize: 11, color: "#888", marginTop: 12 }}>Demo: use admin / tea-admin-2026 (or env ADMIN_DEFAULT_PASSWORD). All audit-logged.</p>
+      <p style={{ fontSize: 11, color: "#6B6B5E", marginTop: 12 }}>Demo: use admin / tea-admin-2026 (or env ADMIN_DEFAULT_PASSWORD). All audit-logged.</p>
     </div>;
   }
 
@@ -107,12 +107,12 @@ export default function App() {
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <span style={{ fontSize: 12, opacity: 0.8 }}>{currentFarm ? `Farm ${currentFarm.slice(0, 8)}` : ""}</span>
-        <button onClick={logout} style={{ background: "white", color: "#1B4332", border: 0, padding: "6px 10px", borderRadius: 8, cursor: "pointer" }}>Logout</button>
+        <button onClick={logout} style={{ background: "#FFFDF6", color: "#1F4D2B", border: 0, padding: "6px 10px", borderRadius: 8, cursor: "pointer" }}>Logout</button>
       </div>
     </header>
-    <nav style={{ padding: "12px 16px", background: "#EEF3EE", borderBottom: "1px solid #DDE3DD", display: "flex", gap: 8, flexWrap: "wrap" }}>
+    <nav style={{ padding: "12px 16px", background: "#EEF3EE", borderBottom: "1px solid #D9D2BC", display: "flex", gap: 8, flexWrap: "wrap" }}>
       {(["dashboard", "workers", "payroll", "conflicts", "sms", "reports", "import", "settings", "audit"] as Tab[]).map(t => (
-        <button key={t} onClick={() => setTab(t)} className={tab === t ? "active" : ""} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #2D6A4F", background: tab === t ? "#1B4332" : "white", color: tab === t ? "white" : "#1B4332", fontWeight: 600, cursor: "pointer" }}>{t}</button>
+        <button key={t} onClick={() => setTab(t)} className={tab === t ? "active" : ""} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #2D6A3E", background: tab === t ? "#1F4D2B" : "white", color: tab === t ? "white" : "#1F4D2B", fontWeight: 600, cursor: "pointer" }}>{t}</button>
       ))}
     </nav>
     {msg && <div style={{ margin: "10px 16px", padding: "8px 12px", background: "#FFF3E0", border: "1px solid #FFCC80", borderRadius: 8, fontSize: 13 }}>{msg}</div>}
@@ -120,19 +120,19 @@ export default function App() {
     {tab === "dashboard" && <div className="card">
       <h3 style={{ marginTop: 0 }}>Dashboard — {farms.find(f => f.farm_id === currentFarm)?.name ?? "Farm"}</h3>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ background: "#F1F8F1", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{workers.length}</div><div style={{ fontSize: 12, color: "#555" }}>Workers</div></div>
-        <div style={{ background: "#F1F8F1", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{payrollWeeks.length}</div><div style={{ fontSize: 12, color: "#555" }}>Pay Weeks</div></div>
-        <div style={{ background: conflicts.length ? "#FDEDEC" : "#F1F8F1", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{conflicts.length}</div><div style={{ fontSize: 12, color: "#555" }}>Unresolved conflicts</div></div>
-        <div style={{ background: corrections.length ? "#FFF3E0" : "#F1F8F1", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{corrections.length}</div><div style={{ fontSize: 12, color: "#555" }}>Correction requests</div></div>
+        <div style={{ background: "#F2F5EA", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{workers.length}</div><div style={{ fontSize: 12, color: "#3F3F38" }}>Workers</div></div>
+        <div style={{ background: "#F2F5EA", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{payrollWeeks.length}</div><div style={{ fontSize: 12, color: "#3F3F38" }}>Pay Weeks</div></div>
+        <div style={{ background: conflicts.length ? "#FDEDEC" : "#F2F5EA", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{conflicts.length}</div><div style={{ fontSize: 12, color: "#3F3F38" }}>Unresolved conflicts</div></div>
+        <div style={{ background: corrections.length ? "#FFF3E0" : "#F2F5EA", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{corrections.length}</div><div style={{ fontSize: 12, color: "#3F3F38" }}>Correction requests</div></div>
       </div>
       <h4>Pay Weeks</h4>
       <table><thead><tr><th>Week</th><th>Status</th><th>Locked At</th></tr></thead><tbody>
         {(payrollWeeks as Array<{ week_start: string; week_end: string; status: string; locked_at: string | null }>).map(w => (
           <tr key={w.week_start}><td>{w.week_start} → {w.week_end}</td><td><span className={`badge ${w.status === "locked" ? "locked" : "open"}`}>{w.status}</span></td><td>{w.locked_at ? new Date(w.locked_at).toLocaleString() : "-"}</td></tr>
         ))}
-        {payrollWeeks.length === 0 && <tr><td colSpan={3} style={{ textAlign: "center", color: "#888" }}>No weeks yet</td></tr>}
+        {payrollWeeks.length === 0 && <tr><td colSpan={3} style={{ textAlign: "center", color: "#6B6B5E" }}>No weeks yet</td></tr>}
       </tbody></table>
-      <p style={{ fontSize: 12, color: "#666" }}>Data: farm_id on all tables, append-only events, server authoritative lock. Kg does not reflect leaf quality — ranking only (see Reports).</p>
+      <p style={{ fontSize: 12, color: "#4A4A42" }}>Data: farm_id on all tables, append-only events, server authoritative lock. Kg does not reflect leaf quality — ranking only (see Reports).</p>
     </div>}
 
     {tab === "workers" && <div className="card">
@@ -142,7 +142,7 @@ export default function App() {
           <tr key={w.worker_id}><td>{w.full_name}</td><td>{w.phone_e164 ?? "-"}</td><td>{w.status}</td><td>{w.verified ? "✓" : "—"}</td></tr>
         ))}
       </tbody></table>
-      <p style={{ fontSize: 12, color: "#666" }}>Hire/fire/rehire on same profile per employment_periods inclusive dates. Phone reuse after inactive with re-verification (Decision 17,19).</p>
+      <p style={{ fontSize: 12, color: "#4A4A42" }}>Hire/fire/rehire on same profile per employment_periods inclusive dates. Phone reuse after inactive with re-verification (Decision 17,19).</p>
       <button className="secondary" onClick={loadDashboard}>Refresh</button>
     </div>}
 
@@ -161,27 +161,27 @@ export default function App() {
             <tr key={l.name}><td>{l.name}</td><td>{l.maskedPhone}</td><td>{l.daysWorked}</td><td>{l.totalKg.toFixed(1)}</td><td><strong>{l.amountKes}</strong></td><td>{l.flags.map((f: string) => <span key={f} className="flag" style={{ marginRight: 4 }}>{f}</span>)}</td></tr>
           ))}
         </tbody><tfoot><tr><td colSpan={3}><strong>Totals</strong></td><td><strong>{payrollSheet.sheet.totals.totalKg.toFixed(1)}</strong></td><td><strong>KES {payrollSheet.sheet.totals.totalAmountKes}</strong></td><td></td></tr></tfoot></table>
-      </div> : <p style={{ color: "#888" }}>Pick a Monday and load. Grand total is sum of rounded worker amounts. Anomaly flags computed from trailing 4 weeks.</p>}
+      </div> : <p style={{ color: "#6B6B5E" }}>Pick a Monday and load. Grand total is sum of rounded worker amounts. Anomaly flags computed from trailing 4 weeks.</p>}
       <h4 style={{ marginTop: 16 }}>Next-week Adjustment (post-lock correction)</h4>
-      <p style={{ fontSize: 12, color: "#666" }}>Locked week corrections never edit history; Admin creates adjustment applied to next week. Owner notified by SMS.</p>
+      <p style={{ fontSize: 12, color: "#4A4A42" }}>Locked week corrections never edit history; Admin creates adjustment applied to next week. Owner notified by SMS.</p>
       <AdjustmentForm farmId={currentFarm} onDone={() => toast("Adjustment created → next week")} />
     </div>}
 
     {tab === "conflicts" && <div className="card">
       <h3>Unresolved Same-Worker/Same-Day Conflicts</h3>
-      <p style={{ fontSize: 12, color: "#666" }}>Never silent last-write-wins (Decision 20). Resolution is a new event. Phase 1 normally one device.</p>
+      <p style={{ fontSize: 12, color: "#4A4A42" }}>Never silent last-write-wins (Decision 20). Resolution is a new event. Phase 1 normally one device.</p>
       <table><thead><tr><th>Date</th><th>Event</th><th>Conflict</th></tr></thead><tbody>
         {(conflicts as Array<{ business_date: string; event_type: string; conflict_flag: boolean; payload: { worker_id: string } }>).map((c, i) => (
           <tr key={i}><td>{c.business_date.slice(0, 10)}</td><td>{c.event_type}</td><td>{c.conflict_flag ? "⚠️ unresolved" : ""} {c.payload?.worker_id?.slice(0, 8)}</td></tr>
         ))}
-        {conflicts.length === 0 && <tr><td colSpan={3} style={{ textAlign: "center", color: "#888" }}>No conflicts</td></tr>}
+        {conflicts.length === 0 && <tr><td colSpan={3} style={{ textAlign: "center", color: "#6B6B5E" }}>No conflicts</td></tr>}
       </tbody></table>
       <h4>Correction Requests (late events for locked week)</h4>
       <table><thead><tr><th>Date</th><th>Payload</th><th>Flag</th></tr></thead><tbody>
         {(corrections as Array<{ business_date: string; payload: unknown; correction_flag: boolean }>).map((c, i) => (
           <tr key={i}><td>{c.business_date.slice(0, 10)}</td><td style={{ fontSize: 11, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>{JSON.stringify(c.payload).slice(0, 120)}</td><td>{c.correction_flag ? "correction" : ""}</td></tr>
         ))}
-        {corrections.length === 0 && <tr><td colSpan={3} style={{ textAlign: "center", color: "#888" }}>No corrections</td></tr>}
+        {corrections.length === 0 && <tr><td colSpan={3} style={{ textAlign: "center", color: "#6B6B5E" }}>No corrections</td></tr>}
       </tbody></table>
     </div>}
 
@@ -191,9 +191,9 @@ export default function App() {
         {(smsLog as Array<{ type: string; to_phone: string; body: string; segments: number; status: string }>).map((m, i) => (
           <tr key={i}><td>{m.type}</td><td>{m.to_phone}</td><td style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", fontSize: 12 }}>{m.body.slice(0, 80)}</td><td>{m.segments}</td><td>{m.status}</td></tr>
         ))}
-        {smsLog.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#888" }}>No SMS</td></tr>}
+        {smsLog.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#6B6B5E" }}>No SMS</td></tr>}
       </tbody></table>
-      <p style={{ fontSize: 12, color: "#666" }}>Segments & cost_estimate_cents logged per farm per month. GSM-7 only (no emojis). Provider mock in preview, AT sandbox/live via env.</p>
+      <p style={{ fontSize: 12, color: "#4A4A42" }}>Segments & cost_estimate_cents logged per farm per month. GSM-7 only (no emojis). Provider mock in preview, AT sandbox/live via env.</p>
     </div>}
 
     {tab === "reports" && <div className="card">
@@ -205,30 +205,30 @@ export default function App() {
         ))}
       </tbody></table>
       <h4>Hardest-working Ranking (Quarter 2026-Q4) — 3 measures</h4>
-      <p style={{ fontSize: 12, color: "#666" }}>Total kg, avg kg per attended plucking day, attendance rate (plucking days during active employment). kg does not reflect leaf quality — rankings only.</p>
+      <p style={{ fontSize: 12, color: "#4A4A42" }}>Total kg, avg kg per attended plucking day, attendance rate (plucking days during active employment). kg does not reflect leaf quality — rankings only.</p>
       <table><thead><tr><th>Rank</th><th>Worker</th><th>Total kg</th><th>Avg kg/day</th><th>Attendance</th></tr></thead><tbody>
         {(hardest as Array<{ name: string; total_kg: number; avg_kg_per_day: number; attendance_rate: number | null; days_attended: number; attendance_denom: number }>).map((h, i) => (
           <tr key={h.name}><td>#{i + 1}</td><td>{h.name}</td><td>{h.total_kg}</td><td>{h.avg_kg_per_day}</td><td>{h.attendance_rate !== null ? `${(h.attendance_rate * 100).toFixed(1)}% (${h.days_attended}/${h.attendance_denom})` : "-"}</td></tr>
         ))}
-        {hardest.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#888" }}>No data for quarter</td></tr>}
+        {hardest.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#6B6B5E" }}>No data for quarter</td></tr>}
       </tbody></table>
     </div>}
 
     {tab === "import" && <div className="card">
       <h3>CSV Import — historical records</h3>
-      <p style={{ fontSize: 12, color: "#666" }}>Canonical template: worker_id,full_name,phone_e164,business_date,kg_units,present,is_plucking_day. Preview before commit; duplicates rejected for explicit resolution.</p>
+      <p style={{ fontSize: 12, color: "#4A4A42" }}>Canonical template: worker_id,full_name,phone_e164,business_date,kg_units,present,is_plucking_day. Preview before commit; duplicates rejected for explicit resolution.</p>
       <textarea value={csvText} onChange={e => setCsvText(e.target.value)} rows={10} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }} />
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button className="secondary" onClick={doCsvPreview}>Preview</button>
         <button className="primary" onClick={doCsvCommit}>Commit</button>
         <a href={`/api/farms/${currentFarm}/csv-template`} style={{ fontSize: 13, alignSelf: "center" }}>Download template</a>
       </div>
-      {csvPreview ? <pre style={{ background: "#F5F5F0", padding: 12, borderRadius: 8, fontSize: 12, overflow: "auto" }}>{JSON.stringify(csvPreview, null, 2)}</pre> : null}
+      {csvPreview ? <pre style={{ background: "#F5F1E3", padding: 12, borderRadius: 8, fontSize: 12, overflow: "auto" }}>{JSON.stringify(csvPreview, null, 2)}</pre> : null}
     </div>}
 
     {tab === "settings" && <div className="card">
       <h3>Farm Settings</h3>
-      <p style={{ fontSize: 12, color: "#666" }}>Rate with effective dates, thresholds, SMS language, Owner/supervisor numbers, cutoff times per farm_id.</p>
+      <p style={{ fontSize: 12, color: "#4A4A42" }}>Rate with effective dates, thresholds, SMS language, Owner/supervisor numbers, cutoff times per farm_id.</p>
       <table><thead><tr><th>Effective From</th><th>Rate KES/kg</th></tr></thead><tbody>
         {(rates as Array<{ effective_from: string; rate_cents_per_kg: number }>).map(r => (
           <tr key={r.effective_from}><td>{r.effective_from}</td><td>{(r.rate_cents_per_kg / 100).toFixed(2)}</td></tr>
@@ -243,7 +243,7 @@ export default function App() {
         {(audit as Array<{ created_at: string; actor: string; action: string; target: string | null }>).map((a, i) => (
           <tr key={i}><td style={{ fontSize: 11 }}>{new Date(a.created_at).toLocaleString()}</td><td>{a.actor}</td><td>{a.action}</td><td>{a.target ?? "-"}</td></tr>
         ))}
-        {audit.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", color: "#888" }}>No audit entries</td></tr>}
+        {audit.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", color: "#6B6B5E" }}>No audit entries</td></tr>}
       </tbody></table>
     </div>}
   </div>;

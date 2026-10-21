@@ -286,59 +286,59 @@ export default function App() {
   const saturday = isSaturdayEAT(selectedDate);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F5F7F0", fontFamily: "system-ui, -apple-system, sans-serif", color: "#1A1A1A" }}>
-      <header style={{ background: "#1B4332", color: "white", padding: "14px 16px", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
+    <div style={{ minHeight: "100vh", background: "#FAF6EA", fontFamily: "system-ui, -apple-system, sans-serif", color: "#23231F" }}>
+      <header style={{ background: "#1F4D2B", color: "white", padding: "14px 16px", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", maxWidth: 720, margin: "0 auto", width: "100%" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: "white", color: "#1B4332", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 16 }}>T</div>
-            <div><div style={{ fontWeight: 800, fontSize: 16, lineHeight: 1 }}>Tea Ledger</div><div style={{ fontSize: 11, opacity: 0.85 }}>{farmName || "Supervisor"} · {online ? "● Online" : "○ Offline"}{dayDone ? " · ✓ Done" : ""}</div></div>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: "#FFFDF6", color: "#1F4D2B", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 16 }}>T</div>
+            <div><div style={{ fontWeight: 800, fontSize: 17, lineHeight: 1, fontFamily: "Georgia, 'Times New Roman', serif" }}>Tea Ledger</div><div style={{ fontSize: 11, opacity: 0.85 }}>{farmName || "Supervisor"} · {online ? "● Online" : "○ Offline"}{dayDone ? " · ✓ Done" : ""}</div></div>
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input value={farmId} onChange={e => saveFarmId(e.target.value)} placeholder="Farm ID" style={{ width: 126, fontSize: 11, padding: "6px 8px", borderRadius: 8, border: 0, background: "rgba(255,255,255,0.15)", color: "white" }} />
-            <button onClick={createFarm} data-testid="new-farm" style={{ fontSize: 12, padding: "7px 12px", borderRadius: 20, border: 0, background: "white", color: "#1B4332", fontWeight: 700, cursor: "pointer" }}>+ New farm</button>
+            <button onClick={createFarm} data-testid="new-farm" style={{ fontSize: 12, padding: "7px 12px", borderRadius: 20, border: 0, background: "#FFFDF6", color: "#1F4D2B", fontWeight: 700, cursor: "pointer" }}>+ New farm</button>
           </div>
         </div>
       </header>
 
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "10px 16px 0" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "#5A6B5A", background: "white", border: "1px solid #E3E8DD", borderRadius: 10, padding: "8px 12px" }}>
-          <span>{pending > 0 ? <><span style={{ color: "#C67C00", fontWeight: 700 }}>● {pending} to sync</span><span style={{ marginLeft: 8, opacity: 0.7 }}>pending upload</span></> : <span style={{ color: "#2D6A4F", fontWeight: 600 }}>✓ Up to date</span>}{lastSynced ? <span style={{ marginLeft: 10, opacity: 0.5 }}>· {new Date(lastSynced).toLocaleTimeString()}</span> : ""}{syncing ? " · syncing…" : ""}</span>
-          <button onClick={() => syncNow(true)} disabled={syncing} style={{ background: pending ? "#E9B44C" : "#E8F5E9", color: pending ? "#5A3E00" : "#2D6A4F", border: 0, borderRadius: 20, padding: "6px 14px", fontWeight: 700, fontSize: 12, cursor: syncing ? "wait" : "pointer", opacity: syncing ? 0.6 : 1 }}>{syncing ? "Syncing…" : "Sync now"}</button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "#5A6B5A", background: "#FFFDF6", border: "1px solid #D9D2BC", borderRadius: 10, padding: "8px 12px" }}>
+          <span>{pending > 0 ? <><span style={{ color: "#C67C00", fontWeight: 700 }}>● {pending} to sync</span><span style={{ marginLeft: 8, opacity: 0.7 }}>pending upload</span></> : <span style={{ color: "#2D6A3E", fontWeight: 600 }}>✓ Up to date</span>}{lastSynced ? <span style={{ marginLeft: 10, opacity: 0.5 }}>· {new Date(lastSynced).toLocaleTimeString()}</span> : ""}{syncing ? " · syncing…" : ""}</span>
+          <button onClick={() => syncNow(true)} disabled={syncing} style={{ background: pending ? "#E3A72F" : "#EAF3E2", color: pending ? "#5A3E00" : "#2D6A3E", border: 0, borderRadius: 20, padding: "6px 14px", fontWeight: 700, fontSize: 12, cursor: syncing ? "wait" : "pointer", opacity: syncing ? 0.6 : 1 }}>{syncing ? "Syncing…" : "Sync now"}</button>
         </div>
         {pending > 0 && <div style={{ fontSize: 11, color: "#8A6B2A", marginTop: 6, background: "#FFFBEB", border: "1px solid #FDE68A", padding: "6px 10px", borderRadius: 8 }}>Data stays on phone even if off — syncs only after you tap <b>Done for the day</b>. No half-day sends near internet.</div>}
-        {msg && <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 500, background: msgType === "error" ? "#FDEDEC" : msgType === "success" ? "#E8F5E9" : "#FFF8E1", color: msgType === "error" ? "#922B21" : msgType === "success" ? "#1B4D3E" : "#5D4037", border: `1px solid ${msgType === "error" ? "#F5B7B1" : msgType === "success" ? "#A9DFBF" : "#FFE0B2"}` }}>{msg}</div>}
+        {msg && <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 500, background: msgType === "error" ? "#FDEDEC" : msgType === "success" ? "#EAF3E2" : "#FFF8E1", color: msgType === "error" ? "#922B21" : msgType === "success" ? "#1B4D3E" : "#5D4037", border: `1px solid ${msgType === "error" ? "#F5B7B1" : msgType === "success" ? "#A9DFBF" : "#FFE0B2"}` }}>{msg}</div>}
       </div>
 
       <div style={{ maxWidth: 720, margin: "0 auto", padding: 16 }}>
-        <div style={{ background: "white", borderRadius: 16, padding: 16, boxShadow: "0 1px 6px rgba(0,0,0,0.07)", border: "1px solid #E8E8E0", marginBottom: 14 }}>
+        <div style={{ background: "#FFFDF6", borderRadius: 16, padding: 16, boxShadow: "0 1px 6px rgba(0,0,0,0.07)", border: "1px solid #D9D2BC", marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: "#6B7D6B", fontWeight: 700 }}>Today</div>
-              <input type="date" value={selectedDate} onChange={e => { setSelectedDate(e.target.value); setDayDone(!!localStorage.getItem(`done:${e.target.value}:${farmId}`)); }} style={{ marginTop: 6, padding: "10px 12px", fontSize: 16, fontWeight: 700, border: "2px solid #2D6A4F", borderRadius: 12, background: "#F0F7F0", minWidth: 160 }} />
+              <input type="date" value={selectedDate} onChange={e => { setSelectedDate(e.target.value); setDayDone(!!localStorage.getItem(`done:${e.target.value}:${farmId}`)); }} style={{ marginTop: 6, padding: "10px 12px", fontSize: 16, fontWeight: 700, border: "2px solid #2D6A3E", borderRadius: 12, background: "#F2F5EA", minWidth: 160 }} />
               <div style={{ fontSize: 11, color: "#8A9A8A", marginTop: 4 }}>Auto-rolls to next day after Done — yesterday kept</div>
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 10, background: noPlucking ? "#FFF3E0" : "#F1F8F1", border: `2px solid ${noPlucking ? "#E9B44C" : "#C8E6C9"}`, padding: "10px 14px", borderRadius: 12, cursor: "pointer" }}>
-              <input type="checkbox" checked={noPlucking} onChange={e => setNoPlucking(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#E9B44C" }} />
+            <label style={{ display: "flex", alignItems: "center", gap: 10, background: noPlucking ? "#FFF3E0" : "#F2F5EA", border: `2px solid ${noPlucking ? "#E3A72F" : "#C8E6C9"}`, padding: "10px 14px", borderRadius: 12, cursor: "pointer" }}>
+              <input type="checkbox" checked={noPlucking} onChange={e => setNoPlucking(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#E3A72F" }} />
               <span style={{ fontWeight: 700, fontSize: 13, color: noPlucking ? "#7A4A00" : "#2E7D32" }}>{noPlucking ? "✓ No plucking today" : "No plucking today"}</span>
             </label>
           </div>
           {noPlucking && (
             <div style={{ marginTop: 12 }}>
-              <input placeholder="Why? e.g. heavy rain, no leaf, holiday" value={noPluckReason} onChange={e => setNoPluckReason(e.target.value)} style={{ width: "100%", padding: "12px 14px", fontSize: 15, borderRadius: 10, border: "2px solid #E9B44C", background: "#FFFBF0", boxSizing: "border-box" }} />
+              <input placeholder="Why? e.g. heavy rain, no leaf, holiday" value={noPluckReason} onChange={e => setNoPluckReason(e.target.value)} style={{ width: "100%", padding: "12px 14px", fontSize: 15, borderRadius: 10, border: "2px solid #E3A72F", background: "#FFFBF0", boxSizing: "border-box" }} />
               <div style={{ fontSize: 12, color: "#8A6A2A", marginTop: 6 }}>Owner SMS: “No plucking {selectedDate}: {noPluckReason || "—"}”</div>
             </div>
           )}
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#1B4332" }}>Today’s pick</h2>
-          <span style={{ fontSize: 12, color: "#6B7D6B", background: "white", padding: "4px 10px", borderRadius: 20, border: "1px solid #E0E0E0" }}>{activeWorkers.length} active {dayDone ? "· ✓ Done" : ""}</span>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#1F4D2B", fontFamily: "Georgia, 'Times New Roman', serif" }}>Today’s pick</h2>
+          <span style={{ fontSize: 12, color: "#6B7D6B", background: "#FFFDF6", padding: "4px 10px", borderRadius: 20, border: "1px solid #D9D2BC" }}>{activeWorkers.length} active {dayDone ? "· ✓ Done" : ""}</span>
         </div>
 
         {activeWorkers.length === 0 && !noPlucking && (
-          <div style={{ background: "white", borderRadius: 16, padding: 24, textAlign: "center", border: "2px dashed #C8D6C8" }}>
-            <div style={{ fontSize: 28, marginBottom: 8 }}>🌿</div><div style={{ fontWeight: 700, color: "#1B4332" }}>No workers yet</div><div style={{ fontSize: 13, color: "#6B7D6B", marginTop: 6 }}>Add your first picker below</div>
-            <button onClick={() => { setTab("workers"); setShowAddWorker(true); }} style={{ marginTop: 14, background: "#2D6A4F", color: "white", padding: "12px 20px", borderRadius: 12, border: 0, fontWeight: 700, cursor: "pointer" }}>Add worker</button>
+          <div style={{ background: "#FFFDF6", borderRadius: 16, padding: 24, textAlign: "center", border: "2px dashed #D9D2BC" }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>🌿</div><div style={{ fontWeight: 700, color: "#1F4D2B" }}>No workers yet</div><div style={{ fontSize: 13, color: "#6B7D6B", marginTop: 6 }}>Add your first picker below</div>
+            <button onClick={() => { setTab("workers"); setShowAddWorker(true); }} style={{ marginTop: 14, background: "#2D6A3E", color: "white", padding: "12px 20px", borderRadius: 12, border: 0, fontWeight: 700, cursor: "pointer" }}>Add worker</button>
           </div>
         )}
         {noPlucking && activeWorkers.length > 0 && (
@@ -352,72 +352,72 @@ export default function App() {
           const inputId = `kg-${w.worker_id}`;
           const initials = w.full_name.split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase();
           return (
-            <div key={w.worker_id} onClick={() => !isAbsent && !dayDone && document.getElementById(inputId)?.focus()} style={{ background: "white", borderRadius: 16, padding: 14, marginBottom: 10, display: "flex", alignItems: "center", gap: 12, border: entry ? "2px solid #2D6A4F" : "1px solid #E8E8E0", boxShadow: entry ? "0 2px 8px rgba(45,106,79,0.12)" : "0 1px 3px rgba(0,0,0,0.05)", cursor: isAbsent || dayDone ? "default" : "pointer", opacity: dayDone ? 0.85 : 1 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: entry ? "#2D6A4F" : "#EFF6EC", color: entry ? "white" : "#2D6A4F", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{initials}</div>
+            <div key={w.worker_id} onClick={() => !isAbsent && !dayDone && document.getElementById(inputId)?.focus()} style={{ background: "#FFFDF6", borderRadius: 16, padding: 14, marginBottom: 10, display: "flex", alignItems: "center", gap: 12, border: entry ? "2px solid #2D6A3E" : "1px solid #D9D2BC", boxShadow: entry ? "0 2px 8px rgba(45,106,79,0.12)" : "0 1px 3px rgba(0,0,0,0.05)", cursor: isAbsent || dayDone ? "default" : "pointer", opacity: dayDone ? 0.85 : 1 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: entry ? "#2D6A3E" : "#EDF2E6", color: entry ? "white" : "#2D6A3E", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{initials}</div>
               <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{w.full_name}</div><div style={{ fontSize: 11, color: "#7A8A7A" }}>{w.phone_e164} · {entry ? `${kgDisplay} kg` : isAbsent ? "Absent" : dayDone ? "Closed" : "tap to enter"}</div></div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: isAbsent ? "#C62828" : "#8A8A8A", cursor: dayDone ? "default" : "pointer", background: isAbsent ? "#FDEDEC" : "#F5F5F0", padding: "6px 8px", borderRadius: 8, border: `1px solid ${isAbsent ? "#F5B7B1" : "#E0E0E0"}`, opacity: dayDone ? 0.6 : 1 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: isAbsent ? "#C62828" : "#8A8A8A", cursor: dayDone ? "default" : "pointer", background: isAbsent ? "#FDEDEC" : "#F5F1E3", padding: "6px 8px", borderRadius: 8, border: `1px solid ${isAbsent ? "#F5B7B1" : "#D9D2BC"}`, opacity: dayDone ? 0.6 : 1 }}>
                   <input type="checkbox" checked={isAbsent} onChange={e => setAbsent(w, e.target.checked)} disabled={dayDone} style={{ width: 14, height: 14 }} /> Absent
                 </label>
-                <input id={inputId} data-testid={`kg-${w.worker_id}`} inputMode="decimal" type="text" placeholder="kg" value={kgDisplay} onChange={e => setKgForWorker(w, e.target.value)} disabled={isAbsent || dayDone} style={{ width: 84, padding: "12px 10px", fontSize: 18, fontWeight: 800, textAlign: "center", border: `2px solid ${entry ? "#2D6A4F" : "#B7CBBF"}`, borderRadius: 12, background: isAbsent || dayDone ? "#F5F5F0" : entry ? "#F0F7F0" : "#FFFDE7", color: "#1B4332", outline: "none" }} />
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#2D6A4F", minWidth: 64, textAlign: "right" }}>{entry ? `KES ${Math.round(entry.kgUnits / 10 * 9)}` : ""}</div>
+                <input id={inputId} data-testid={`kg-${w.worker_id}`} inputMode="decimal" type="text" placeholder="kg" value={kgDisplay} onChange={e => setKgForWorker(w, e.target.value)} disabled={isAbsent || dayDone} style={{ width: 84, padding: "12px 10px", fontSize: 18, fontWeight: 800, textAlign: "center", border: `2px solid ${entry ? "#2D6A3E" : "#B7CBBF"}`, borderRadius: 12, background: isAbsent || dayDone ? "#F5F1E3" : entry ? "#F2F5EA" : "#FFFDF6", color: "#1F4D2B", outline: "none" }} />
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#2D6A3E", minWidth: 64, textAlign: "right" }}>{entry ? `KES ${Math.round(entry.kgUnits / 10 * 9)}` : ""}</div>
               </div>
             </div>
           );
         })}
 
         {activeWorkers.length > 0 && !noPlucking && (
-          <div style={{ background: "#1B4332", color: "white", borderRadius: 16, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+          <div style={{ background: "#1F4D2B", color: "white", borderRadius: 16, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
             <div><div style={{ fontSize: 11, opacity: 0.8, letterSpacing: 0.8, textTransform: "uppercase" }}>Today total</div><div style={{ fontSize: 22, fontWeight: 900, marginTop: 2 }}>{totalKgUnits / 10} <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 600 }}>kg</span> · {pickerCount} pickers</div></div>
             <div style={{ textAlign: "right" }}><div style={{ fontSize: 11, opacity: 0.8 }}>Est. pay (×9)</div><div style={{ fontSize: 18, fontWeight: 800 }}>KES {totalKes.toLocaleString()}</div></div>
           </div>
         )}
 
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-          <button data-testid="confirm-day" onClick={markDoneForDay} disabled={dayDone} style={{ flex: 1, background: dayDone ? "#E8F5E9" : "#2D6A4F", color: dayDone ? "#2D6A4F" : "white", padding: "16px 12px", borderRadius: 14, border: dayDone ? "2px solid #A5D6A7" : 0, fontWeight: 800, fontSize: 15, cursor: dayDone ? "default" : "pointer", boxShadow: dayDone ? "none" : "0 2px 8px rgba(45,106,79,0.3)", opacity: dayDone ? 0.9 : 1 }}>{dayDone ? "✓ Done — next day ready" : "✓ Done for the day"}</button>
-          <button data-testid="submit-saturday" onClick={submitSaturday} style={{ flex: 1, background: saturday ? "white" : "#F5F5F0", color: saturday ? "#7A4A00" : "#9A9A9A", padding: "16px 12px", borderRadius: 14, border: `2px solid ${saturday ? "#E9B44C" : "#E0E0E0"}`, fontWeight: 800, fontSize: 13, cursor: saturday ? "pointer" : "not-allowed", opacity: saturday ? 1 : 0.7 }} title={saturday ? "Lock week Mon–Sat" : "Only on Saturday"}>Submit Saturday FINAL</button>
+          <button data-testid="confirm-day" onClick={markDoneForDay} disabled={dayDone} style={{ flex: 1, background: dayDone ? "#EAF3E2" : "#E3A72F", color: dayDone ? "#2D6A3E" : "#23231F", padding: "16px 12px", borderRadius: 14, border: dayDone ? "2px solid #A5D6A7" : 0, fontWeight: 800, fontSize: 15, cursor: dayDone ? "default" : "pointer", boxShadow: dayDone ? "none" : "0 2px 10px rgba(227,167,47,0.45)", opacity: dayDone ? 0.9 : 1 }}>{dayDone ? "✓ Done — next day ready" : "✓ Done for the day"}</button>
+          <button data-testid="submit-saturday" onClick={submitSaturday} style={{ flex: 1, background: saturday ? "white" : "#F5F1E3", color: saturday ? "#7A4A00" : "#9A9A9A", padding: "16px 12px", borderRadius: 14, border: `2px solid ${saturday ? "#E3A72F" : "#D9D2BC"}`, fontWeight: 800, fontSize: 13, cursor: saturday ? "pointer" : "not-allowed", opacity: saturday ? 1 : 0.7 }} title={saturday ? "Lock week Mon–Sat" : "Only on Saturday"}>Submit Saturday FINAL</button>
         </div>
         <div style={{ fontSize: 11, color: "#8A8A8A", textAlign: "center", marginTop: 8 }}>{dayDone ? "Data saved on phone — auto-syncs when online, no half-day sends. Phone off/on safe." : "Tap last picker’s kg, then Done — that queues full day (not half) and auto-syncs when near internet"}</div>
         {!saturday && <div style={{ fontSize: 11, color: "#9E8A5A", textAlign: "center", marginTop: 4 }}>Saturday FINAL locks weekly pay — available only on Saturday</div>}
 
-        <div style={{ marginTop: 24, background: "white", borderRadius: 16, border: "1px solid #E8E8E0", overflow: "hidden" }}>
-          <button onClick={() => setTab(tab === "workers" ? "daily" : "workers")} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", background: "white", border: 0, cursor: "pointer", textAlign: "left" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 18 }}>👥</span><span style={{ fontWeight: 700, fontSize: 14, color: "#1B4332" }}>Workers</span><span style={{ fontSize: 11, background: "#EFF6EC", color: "#2D6A4F", padding: "3px 8px", borderRadius: 20, fontWeight: 700 }}>{workers.length}</span></div>
+        <div style={{ marginTop: 24, background: "#FFFDF6", borderRadius: 16, border: "1px solid #D9D2BC", overflow: "hidden" }}>
+          <button onClick={() => setTab(tab === "workers" ? "daily" : "workers")} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", background: "#FFFDF6", border: 0, cursor: "pointer", textAlign: "left" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 18 }}>👥</span><span style={{ fontWeight: 700, fontSize: 14, color: "#1F4D2B" }}>Workers</span><span style={{ fontSize: 11, background: "#EDF2E6", color: "#2D6A3E", padding: "3px 8px", borderRadius: 20, fontWeight: 700 }}>{workers.length}</span></div>
             <span style={{ color: "#8A8A8A", fontSize: 12 }}>{tab === "workers" ? "▲ Hide" : "▼ Manage"}</span>
           </button>
           {tab === "workers" && (
-            <div style={{ padding: 16, borderTop: "1px solid #F0F0EA", background: "#FAFAF7" }}>
+            <div style={{ padding: 16, borderTop: "1px solid #F0F0EA", background: "#F5F1E3" }}>
               {!showAddWorker ? (
-                <button data-testid="show-add-worker" onClick={() => setShowAddWorker(true)} style={{ width: "100%", background: "white", border: "2px dashed #2D6A4F", color: "#2D6A4F", padding: "14px", borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>+ Add worker</button>
+                <button data-testid="show-add-worker" onClick={() => setShowAddWorker(true)} style={{ width: "100%", background: "#FFFDF6", border: "2px dashed #2D6A3E", color: "#2D6A3E", padding: "14px", borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>+ Add worker</button>
               ) : (
-                <div style={{ background: "white", borderRadius: 12, padding: 14, border: "1px solid #E0E0E0" }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#1B4332" }}>Add picker</div>
+                <div style={{ background: "#FFFDF6", borderRadius: 12, padding: 14, border: "1px solid #D9D2BC" }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#1F4D2B" }}>Add picker</div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <input data-testid="worker-name" placeholder="Name e.g. Kiptoo" value={fullName} onChange={e => setFullName(e.target.value)} style={{ flex: "1 1 140px", padding: "12px 14px", fontSize: 15, borderRadius: 10, border: "2px solid #D5DDD5" }} />
-                    <input data-testid="worker-phone" placeholder="07... or +254..." value={phone} onChange={e => setPhone(e.target.value)} style={{ flex: "1 1 140px", padding: "12px 14px", fontSize: 15, borderRadius: 10, border: "2px solid #D5DDD5" }} />
+                    <input data-testid="worker-name" placeholder="Name e.g. Kiptoo" value={fullName} onChange={e => setFullName(e.target.value)} style={{ flex: "1 1 140px", padding: "12px 14px", fontSize: 15, borderRadius: 10, border: "2px solid #D9D2BC" }} />
+                    <input data-testid="worker-phone" placeholder="07... or +254..." value={phone} onChange={e => setPhone(e.target.value)} style={{ flex: "1 1 140px", padding: "12px 14px", fontSize: 15, borderRadius: 10, border: "2px solid #D9D2BC" }} />
                   </div>
                   <label style={{ display: "flex", gap: 8, marginTop: 12, fontSize: 12, color: "#4A5A4A", cursor: "pointer" }}>
-                    <input data-testid="consent" type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#2D6A4F" }} /><span>Worker agreed to SMS receipts & storage</span>
+                    <input data-testid="consent" type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#2D6A3E" }} /><span>Worker agreed to SMS receipts & storage</span>
                   </label>
                   <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    <button data-testid="add-worker" onClick={registerWorker} style={{ flex: 1, background: "#2D6A4F", color: "white", padding: "13px", borderRadius: 10, border: 0, fontWeight: 800, fontSize: 15, cursor: "pointer" }}>Add worker</button>
-                    <button onClick={() => { setShowAddWorker(false); setFullName(""); setPhone(""); }} style={{ padding: "13px 16px", borderRadius: 10, border: "1px solid #D5DDD5", background: "white", fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                    <button data-testid="add-worker" onClick={registerWorker} style={{ flex: 1, background: "#2D6A3E", color: "white", padding: "13px", borderRadius: 10, border: 0, fontWeight: 800, fontSize: 15, cursor: "pointer" }}>Add worker</button>
+                    <button onClick={() => { setShowAddWorker(false); setFullName(""); setPhone(""); }} style={{ padding: "13px 16px", borderRadius: 10, border: "1px solid #D9D2BC", background: "#FFFDF6", fontWeight: 600, cursor: "pointer" }}>Cancel</button>
                   </div>
                 </div>
               )}
               <div style={{ marginTop: 16 }}>
                 {workers.length === 0 && <div style={{ fontSize: 13, color: "#8A8A8A", textAlign: "center", padding: 12 }}>No workers yet</div>}
                 {workers.map(w => (
-                  <div key={w.worker_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "white", border: selectedWorkerId === w.worker_id ? "2px solid #2D6A4F" : "1px solid #E8E8E0", borderRadius: 12, padding: "10px 12px", marginBottom: 8 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>{w.full_name} <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 20, background: w.status === "active" ? "#E8F5E9" : "#F5F5F0", color: w.status === "active" ? "#2E7D32" : "#8A8A8A", border: `1px solid ${w.status === "active" ? "#A5D6A7" : "#E0E0E0"}` }}>{w.status}</span></div><div style={{ fontSize: 11, color: "#7A8A7A" }}>{w.phone_e164}</div></div>
-                    <button onClick={() => setSelectedWorkerId(w.worker_id === selectedWorkerId ? "" : w.worker_id)} style={{ background: selectedWorkerId === w.worker_id ? "#2D6A4F" : "white", color: selectedWorkerId === w.worker_id ? "white" : "#2D6A4F", border: "1.5px solid #2D6A4F", padding: "7px 12px", borderRadius: 20, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{selectedWorkerId === w.worker_id ? "Selected" : "Manage"}</button>
+                  <div key={w.worker_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#FFFDF6", border: selectedWorkerId === w.worker_id ? "2px solid #2D6A3E" : "1px solid #D9D2BC", borderRadius: 12, padding: "10px 12px", marginBottom: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>{w.full_name} <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 20, background: w.status === "active" ? "#EAF3E2" : "#F5F1E3", color: w.status === "active" ? "#2E7D32" : "#8A8A8A", border: `1px solid ${w.status === "active" ? "#A5D6A7" : "#D9D2BC"}` }}>{w.status}</span></div><div style={{ fontSize: 11, color: "#7A8A7A" }}>{w.phone_e164}</div></div>
+                    <button onClick={() => setSelectedWorkerId(w.worker_id === selectedWorkerId ? "" : w.worker_id)} style={{ background: selectedWorkerId === w.worker_id ? "#2D6A3E" : "white", color: selectedWorkerId === w.worker_id ? "white" : "#2D6A3E", border: "1.5px solid #2D6A3E", padding: "7px 12px", borderRadius: 20, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{selectedWorkerId === w.worker_id ? "Selected" : "Manage"}</button>
                   </div>
                 ))}
                 {selectedWorkerId && (
-                  <div style={{ background: "white", border: "1px solid #E0E0E0", borderRadius: 12, padding: 12, marginTop: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1B4332" }}>{workers.find(w => w.worker_id === selectedWorkerId)?.full_name}</div>
-                    <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}><input type="date" value={fireDate} onChange={e => setFireDate(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #D5DDD5", fontSize: 13 }} /><input placeholder="Reason" value={fireReason} onChange={e => setFireReason(e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #D5DDD5", fontSize: 13 }} /></div>
-                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}><button onClick={fireWorker} style={{ flex: 1, background: "#FFF3F3", color: "#C62828", padding: "10px", borderRadius: 8, border: "1.5px solid #EF9A9A", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>End work</button><button onClick={rehireWorker} style={{ flex: 1, background: "#2D6A4F", color: "white", padding: "10px", borderRadius: 8, border: 0, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Rehire</button></div>
+                  <div style={{ background: "#FFFDF6", border: "1px solid #D9D2BC", borderRadius: 12, padding: 12, marginTop: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1F4D2B" }}>{workers.find(w => w.worker_id === selectedWorkerId)?.full_name}</div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}><input type="date" value={fireDate} onChange={e => setFireDate(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #D9D2BC", fontSize: 13 }} /><input placeholder="Reason" value={fireReason} onChange={e => setFireReason(e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #D9D2BC", fontSize: 13 }} /></div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}><button onClick={fireWorker} style={{ flex: 1, background: "#FFF3F3", color: "#C62828", padding: "10px", borderRadius: 8, border: "1.5px solid #EF9A9A", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>End work</button><button onClick={rehireWorker} style={{ flex: 1, background: "#2D6A3E", color: "white", padding: "10px", borderRadius: 8, border: 0, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Rehire</button></div>
                   </div>
                 )}
               </div>
