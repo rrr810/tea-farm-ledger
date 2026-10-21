@@ -45,5 +45,10 @@ These are our interpretations for unspecified points. Ryan's authoritative decis
 - **Why:** APPROVED decision 2 says late events for a locked week are kept and flagged as correction requests and only applied as adjustments to the next week. The queries previously ignored the flag, so a late entry would be silently applied to the locked week's sheet and SMS — and the first view would freeze it into `payroll_lines`.
 - **Where:** `packages/database/src/payroll.ts`, `packages/sms/src/scheduler.ts` (6 queries), `apps/api/src/routes/admin.ts` (3 report queries).
 
+## J10 — Production detection on Vercel vs VPS
+- **Choice:** `isProduction()` = `VERCEL_ENV === "production"` when `VERCEL_ENV` is set (Vercel), else `NODE_ENV === "production"` (VPS/Docker). Production still refuses PGlite; staging/preview deployments run the documented ephemeral demo.
+- **Why:** Vercel sets `NODE_ENV=production` on every deployment — including staging/preview demos — so the old `NODE_ENV || VERCEL_ENV` check refused PGlite everywhere and the README's demo path could never work. `VERCEL_ENV` is Vercel's accurate environment signal.
+- **Where:** `packages/database/src/db.ts#isProduction`.
+
 ## Open question
 - **Unresolved same-worker/same-day conflicts are counted twice in derivation.** Per decision 20 conflicts are surfaced and resolved by a new event; until resolution, both entries currently sum into the sheet. Rare in Phase 1 (one supervisor device; the PWA edits rather than duplicates), but worth an explicit rule before the December demo: last-entry-wins for display, or exclude the conflict-flagged one?

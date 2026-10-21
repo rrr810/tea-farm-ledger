@@ -17,7 +17,11 @@ let pglite: PGlite | null = null;
  * for prod + refuse PGlite in production".
  */
 function isProduction(): boolean {
-  return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+  // On Vercel, NODE_ENV is "production" on EVERY deployment (including staging and
+  // preview demos), so VERCEL_ENV is the accurate signal there. Elsewhere (VPS,
+  // Docker) fall back to NODE_ENV. Production always refuses PGlite (decision 27).
+  if (process.env.VERCEL_ENV) return process.env.VERCEL_ENV === "production";
+  return process.env.NODE_ENV === "production";
 }
 
 export async function getDb(): Promise<DbClient> {
