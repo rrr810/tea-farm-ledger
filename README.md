@@ -7,7 +7,7 @@ Kenyan smallholder tea farm ledger: offline-first supervisor PWA, SMS to Owner/w
 ```powershell
 npm.cmd install
 npm.cmd run typecheck
-npm.cmd test          # 60 tests, PGlite ephemeral when USE_PGLITE=true
+npm.cmd test          # 64 tests, PGlite ephemeral when USE_PGLITE=true
 npm.cmd run dev:api   # Fastify 0.0.0.0:3000 — no Docker/WSL required (USE_PGLITE=true fallback, labeled ephemeral demo data)
 # PWA:  npm.cmd run dev:pwa    -> http://localhost:5173 (HTTPS preview via Vercel, service worker)
 # Admin:npm.cmd run dev:admin  -> http://localhost:5174/admin

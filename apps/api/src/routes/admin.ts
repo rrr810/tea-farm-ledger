@@ -109,7 +109,7 @@ export async function adminRoutes(app: FastifyInstance) {
          SUM((payload->>'kg_units')::int) as total_kg_units,
          COUNT(*) as entries
        FROM events
-       WHERE farm_id=$1 AND event_type='pluck.logged' AND (payload->>'present') != 'false'
+       WHERE farm_id=$1 AND event_type='pluck.logged' AND (payload->>'present') != 'false' AND correction_flag = false
        GROUP BY month ORDER BY month ASC`,
       [farmId],
     );
@@ -163,7 +163,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!employedInMonth) continue;
       // Check active: any plucking-day entry in month where present
       const pluckRes = await db.query(
-        `SELECT 1 FROM events WHERE farm_id=$1 AND payload->>'worker_id'=$2 AND business_date >= $3 AND business_date <= $4 AND event_type='pluck.logged' AND (payload->>'present') != 'false' LIMIT 1`,
+        `SELECT 1 FROM events WHERE farm_id=$1 AND payload->>'worker_id'=$2 AND business_date >= $3 AND business_date <= $4 AND event_type='pluck.logged' AND (payload->>'present') != 'false' AND correction_flag = false LIMIT 1`,
         [farmId, w.worker_id, monthStart, monthEnd],
       );
       const active = (pluckRes.rows as unknown[]).length > 0;
@@ -209,7 +209,7 @@ export async function adminRoutes(app: FastifyInstance) {
          SUM((payload->>'kg_units')::int) as kg_units,
          COUNT(*) as entries
        FROM events
-       WHERE farm_id=$1 AND event_type='pluck.logged' AND (payload->>'present') != 'false'
+       WHERE farm_id=$1 AND event_type='pluck.logged' AND (payload->>'present') != 'false' AND correction_flag = false
          AND business_date >= $2 AND business_date <= $3
        GROUP BY wid`,
       [farmId, quarterStart, quarterEnd],
