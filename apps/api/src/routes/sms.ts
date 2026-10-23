@@ -65,8 +65,10 @@ export async function smsRoutes(app: FastifyInstance) {
     // Accept ownerPhone, supervisorPhone, senderId etc. - normalize
     const patch: Record<string, unknown> = {};
     if (body.ownerPhone) patch.ownerPhone = body.ownerPhone;
+    if (body.ownerName) patch.ownerName = body.ownerName;
     if (body.supervisorPhone) patch.supervisorPhone = body.supervisorPhone;
     if (body.owner_phone) patch.ownerPhone = body.owner_phone;
+    if (body.owner_name) patch.ownerName = body.owner_name;
     if (body.supervisor_phone) patch.supervisorPhone = body.supervisor_phone;
     // Pass through raw settings for rate etc.
     const updated = await updateFarmSettings(farmId, patch as never);
@@ -76,12 +78,22 @@ export async function smsRoutes(app: FastifyInstance) {
   // Legacy simple: POST /api/farms/:farmId/owner-phone
   app.post("/api/farms/:farmId/owner-phone", async (req, reply) => {
     const { farmId } = req.params as { farmId: string };
-    const body = req.body as { ownerPhone?: string; owner_phone?: string; supervisorPhone?: string; supervisor_phone?: string };
+    const body = req.body as {
+      ownerPhone?: string;
+      owner_phone?: string;
+      ownerName?: string;
+      owner_name?: string;
+      supervisorPhone?: string;
+      supervisor_phone?: string;
+    };
     const ownerPhone = body.ownerPhone ?? body.owner_phone;
+    const ownerName = body.ownerName ?? body.owner_name;
     const supervisorPhone = body.supervisorPhone ?? body.supervisor_phone;
-    if (!ownerPhone && !supervisorPhone) return reply.status(400).send({ error: "ownerPhone or supervisorPhone required" });
+    if (!ownerPhone && !ownerName && !supervisorPhone)
+      return reply.status(400).send({ error: "ownerPhone, ownerName, or supervisorPhone required" });
     const patch: Record<string, string> = {};
     if (ownerPhone) patch.ownerPhone = ownerPhone;
+    if (ownerName) patch.ownerName = ownerName;
     if (supervisorPhone) patch.supervisorPhone = supervisorPhone;
     const updated = await updateFarmSettings(farmId, patch as never);
     return { ok: true, settings: updated };

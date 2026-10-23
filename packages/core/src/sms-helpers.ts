@@ -36,25 +36,44 @@ export function buildWeeklyReceiptSms(opts: {
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
 export function buildDailySms(opts: {
+  /** Display name for the farm owner. The scheduler supplies Peter Rugut for this farm. */
+  ownerName?: string;
   dateLabel: string;
   totalKgUnits: number;
   pickerCount: number;
+  /** One entry for every picker recorded for the day. */
   lines: Array<{ name: string; kgUnits: number }>;
   rateCentsPerKg: number;
   totalPayEstimateKes?: number;
-  maxLinesBeforeMore?: number;
 }): { body: string; segments: number; gsm7: boolean } {
   const totalKg = (opts.totalKgUnits / 10).toString();
   const rateKes = (opts.rateCentsPerKg / 100).toString();
-  const header = `TEA ${opts.dateLabel}\nTotal ${totalKg}kg ${opts.pickerCount} pickers`;
-  const linesToShow = opts.maxLinesBeforeMore ?? 5;
-  const sorted = [...opts.lines].sort((a, b) => b.kgUnits - a.kgUnits);
-  const visible = sorted.slice(0, linesToShow);
-  const hidden = sorted.length - visible.length;
-  const lineStr = visible.map((l) => `${l.name} ${(l.kgUnits / 10).toString()}`).join("\n");
-  const moreStr = hidden > 0 ? `\n+${hidden} more, see weekly` : "";
-  const estStr = opts.totalPayEstimateKes !== undefined ? `\nRate ${rateKes} Est KES ${opts.totalPayEstimateKes}` : `\nRate ${rateKes}`;
-  const body = `${header}\n${lineStr}${moreStr}${estStr}`;
+  const ownerName = opts.ownerName?.trim() || "Farm Owner";
+  const formatKes = (amount: number) => Math.round(amount).toLocaleString("en-KE");
+  const estimateLinePayKes = (kgUnits: number) => Math.round((kgUnits * opts.rateCentsPerKg) / 1000);
+  const estimatedTotalKes = opts.totalPayEstimateKes ?? estimateLinePayKes(opts.totalKgUnits);
+
+  // Alphabetical order is stable and lets Peter find each worker quickly. The rate is
+  // shown once because it applies to every row; repeating it per worker wastes parts.
+  const rows = [...opts.lines]
+    .sort((a, b) => a.name.localeCompare(b.name, "en"))
+    .map((line) => `${line.name} | ${(line.kgUnits / 10).toString()} | ${formatKes(estimateLinePayKes(line.kgUnits))}`);
+
+  const body = [
+    `Dear ${ownerName},`,
+    "",
+    "TEA FARM LEDGER",
+    `${opts.dateLabel} DAILY SUMMARY`,
+    `Rate: KES ${rateKes}/kg`,
+    "",
+    "NAME | KG | EST KES",
+    ...rows,
+    "--------------------",
+    `TOTAL | ${totalKg} | ${formatKes(estimatedTotalKes)}`,
+    "",
+    "Thank you.",
+  ].join("\n");
+
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
 export function buildFridayEstimateSms(opts: {

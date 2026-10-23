@@ -15,7 +15,7 @@ Authoritative. Where this conflicts with 01-PROJECT-BRIEF.md, this file wins. An
 10. "NEAR END OF A PERIOD" ANOMALY: removed from Phase 1.
 11. ANOMALY BASELINE: compare the current worker-week amount with the average of the worker's previous four completed payroll weeks (excluding weeks with no employment or no entries); with fewer than 2 prior weeks, skip the comparison and flag "limited history".
 12. ACTIVE/IDLE MONTHS: active = at least one plucking-day entry for the worker in the month; idle = employed for some or all of the month but no attended plucking day.
-13. DAILY SMS LINE ORDER: highest kg first, then "+N more, see weekly".
+13. DAILY OWNER SMS: address Peter Rugut and show every recorded picker in a readable alphabetical table: `NAME | KG | EST KES`; show the daily rate once above the table and the total kg/estimated amount below it. Keep the normal daily summary to at most 3 GSM-7 parts. If real full worker names would exceed 3 parts, do not silently omit a worker or send an extra charged part: return the full preview for explicit review.
 14. FRIDAY ESTIMATE: 17:00 EAT, configurable.
 15. NO-PLUCKING DAY: send the Owner a short SMS stating there was no plucking and the reason.
 16. SUPERVISOR REMINDER: sent to the configured supervisor number at 14:30 EAT if the server has not received the final Saturday entry (an unsynced offline submission still counts as not received).

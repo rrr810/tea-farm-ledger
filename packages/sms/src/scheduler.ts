@@ -17,6 +17,8 @@ import { randomUUID } from "node:crypto";
 
 export type FarmSettings = {
   ownerPhone?: string;
+  /** Owner greeting used in the readable daily summary, e.g. "Peter Rugut". */
+  ownerName?: string;
   supervisorPhone?: string;
   fridayEstimateTime?: string; // default 17:00 EAT
 };
@@ -153,6 +155,8 @@ export async function sendDailyOwnerSms(opts: { farmId: string; date: string }) 
   const totalPay = Math.round((totalKgUnits * rateCentsPerKg) / 10 / 100); // rough est, weighted correct in M6 payroll job
 
   const { body, segments } = buildDailySms({
+    // Peter's name can be overridden from farm settings when another owner is configured.
+    ownerName: settings.ownerName ?? "Peter Rugut",
     dateLabel,
     totalKgUnits,
     pickerCount: lines.length,
@@ -160,6 +164,19 @@ export async function sendDailyOwnerSms(opts: { farmId: string; date: string }) 
     rateCentsPerKg,
     totalPayEstimateKes: totalPay,
   });
+
+  // Peter requested every picker be named. Keep the original 3-part daily budget
+  // protection: never omit a worker or silently spend a fourth unit. Instead return
+  // the full preview for an explicit review of unusually long registered names.
+  if (segments > 3) {
+    return {
+      skipped: true,
+      reason: "daily owner summary exceeds 3 SMS parts; review the full-name preview before sending",
+      segments,
+      to,
+      body,
+    } as const;
+  }
 
   const jobKey = `${farmId}:${date}:daily-owner`;
   const res = await insertSmsIfNotExists({ farmId, jobKey, type: "daily-owner", to, body, segments });
