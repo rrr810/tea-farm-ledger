@@ -8,9 +8,16 @@ export function isGsm7(text: string): boolean {
   }
   return true;
 }
+// GSM-7 extension-table symbols consume two septets even though they are one
+// JavaScript character. Count them correctly so the unit/cost guard is honest.
+const GSM7_EXTENSION_CHARS = new Set(["^", "{", "}", "\\", "[", "~", "]", "|"]);
+function gsm7SeptetLength(text: string): number {
+  return [...text].reduce((total, char) => total + (GSM7_EXTENSION_CHARS.has(char) ? 2 : 1), 0);
+}
 export function countSegments(text: string): number {
-  if (text.length <= 160) return 1;
-  return Math.ceil(text.length / 153);
+  const length = isGsm7(text) ? gsm7SeptetLength(text) : text.length;
+  if (length <= 160) return 1;
+  return Math.ceil(length / 153);
 }
 export function fitsInSegments(text: string, maxSegments: number): boolean {
   return countSegments(text) <= maxSegments;
@@ -57,7 +64,9 @@ export function buildDailySms(opts: {
   // shown once because it applies to every row; repeating it per worker wastes parts.
   const rows = [...opts.lines]
     .sort((a, b) => a.name.localeCompare(b.name, "en"))
-    .map((line) => `${line.name} | ${(line.kgUnits / 10).toString()} | ${formatKes(estimateLinePayKes(line.kgUnits))}`);
+    // Use hyphens, not pipes: | is GSM-7 extension-table text and costs an
+    // extra septet per occurrence. The compact table is friendlier to the budget.
+    .map((line) => `${line.name} - ${(line.kgUnits / 10).toString()} - ${formatKes(estimateLinePayKes(line.kgUnits))}`);
 
   const body = [
     `Dear ${ownerName},`,
@@ -66,10 +75,10 @@ export function buildDailySms(opts: {
     `${opts.dateLabel} DAILY SUMMARY`,
     `Rate: KES ${rateKes}/kg`,
     "",
-    "NAME | KG | EST KES",
+    "NAME - KG - EST KES",
     ...rows,
     "--------------------",
-    `TOTAL | ${totalKg} | ${formatKes(estimatedTotalKes)}`,
+    `TOTAL - ${totalKg} - ${formatKes(estimatedTotalKes)}`,
     "",
     "Thank you.",
   ].join("\n");

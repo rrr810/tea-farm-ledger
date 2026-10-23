@@ -149,8 +149,8 @@ describe("decision 2 — locked weeks never silently apply late events", () => {
     const res = (await sendDailyOwnerSms({ farmId, date: "2026-11-03" })) as { skipped?: boolean; body: string };
     expect(res.skipped).toBeFalsy();
     // B's 20kg counts; A's late 50kg must not be in the readable table or totals.
-    expect(res.body).toContain("TOTAL | 20 | 180");
-    expect(res.body).toContain("Bena B | 20 | 180");
+    expect(res.body).toContain("TOTAL - 20 - 180");
+    expect(res.body).toContain("Bena B - 20 - 180");
     expect(res.body).not.toContain("Ana A");
     expect(res.body).not.toContain("50");
   });
