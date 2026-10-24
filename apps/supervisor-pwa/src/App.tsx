@@ -18,11 +18,14 @@ function activeDateForFarm(farmId: string) {
     farmId,
     savedActiveDate: stored,
     today,
-    todayIsDone: !!(farmId && localStorage.getItem(`done:${today}:${farmId}`)),
+    isDateDone: candidate => !!localStorage.getItem(`done:${candidate}:${farmId}`),
   });
-  // Migrate the old in-memory-only auto-roll once, so subsequent launches
-  // preserve the same fresh sheet even after the completed day is locked.
-  if (farmId && !stored && date !== today) localStorage.setItem(activeDateStorageKey(farmId), date);
+  // Migrate both variants of the old in-memory-only auto-roll: a missing
+  // pointer and a stale pointer that still names the day just marked Done.
+  // A valid fresh pointer is deliberately left unchanged.
+  if (farmId && ((!stored && date !== today) || (stored !== null && date !== stored))) {
+    localStorage.setItem(activeDateStorageKey(farmId), date);
+  }
   return date;
 }
 function isSaturdayEAT(d: string) {

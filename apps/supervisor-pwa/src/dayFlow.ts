@@ -14,11 +14,18 @@ export function recoverActiveDate(input: {
   farmId: string;
   savedActiveDate: string | null;
   today: string;
-  todayIsDone: boolean;
+  isDateDone: (date: string) => boolean;
 }): string {
   if (!input.farmId) return input.today;
-  if (input.savedActiveDate) return input.savedActiveDate;
-  return input.todayIsDone ? nextCalendarDate(input.today) : input.today;
+
+  // An older in-memory auto-roll could leave a pointer at the day that was
+  // subsequently marked Done. Never trust a saved pointer to a closed sheet:
+  // advance through any contiguous completed dates until we reach the fresh
+  // sheet. With no saved pointer we begin at today, preserving the original
+  // one-time migration for old shells that completed today.
+  let date = input.savedActiveDate ?? input.today;
+  while (input.isDateDone(date)) date = nextCalendarDate(date);
+  return date;
 }
 
 /** ISO calendar-day arithmetic; 12:00 avoids a local-time rollover while adding days. */
