@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, token, setToken, clearToken, farmId, setFarmId } from "./api.js";
+import { resolveFarmSelection } from "./farmSelection.js";
 
 type Tab = "login" | "dashboard" | "workers" | "payroll" | "conflicts" | "sms" | "reports" | "import" | "settings" | "audit";
 
@@ -89,7 +90,13 @@ export default function App() {
   async function loadFarms() {
     try {
       const res = await api.farms() as { farms: Array<{ farm_id: string; name: string }> };
-      setFarms(res.farms); if (!currentFarm && res.farms[0]) { setCurrentFarm(res.farms[0].farm_id); setFarmId(res.farms[0].farm_id); }
+      setFarms(res.farms);
+      const nextFarm = resolveFarmSelection(currentFarm, res.farms);
+      if (nextFarm !== currentFarm) {
+        setCurrentFarm(nextFarm);
+        if (nextFarm) setFarmId(nextFarm);
+        else localStorage.removeItem("farm_id");
+      }
     } catch (e) { console.error(e); }
   }
 
