@@ -107,8 +107,9 @@ export default function App() {
   }
   async function createFarm() {
     if (!online) { setToast("Connect to internet to create farm", "error"); return; }
+    const name = farmName.trim();
+    if (!name) { setToast("Enter a clear farm label, e.g. TEST-5532", "error"); return; }
     try {
-      const name = farmName.trim() || "Tea Farm";
       const res = await fetch("/api/farms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json() as { farm_id: string };
@@ -293,8 +294,9 @@ export default function App() {
             <div style={{ width: 36, height: 36, borderRadius: 10, background: "#FFFDF6", color: "#1F4D2B", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 16 }}>T</div>
             <div><div style={{ fontWeight: 800, fontSize: 17, lineHeight: 1, fontFamily: "Georgia, 'Times New Roman', serif" }}>Tea Ledger</div><div style={{ fontSize: 11, opacity: 0.85 }}>{farmName || "Supervisor"} · {online ? "● Online" : "○ Offline"}{dayDone ? " · ✓ Done" : ""}</div></div>
           </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <input value={farmId} onChange={e => saveFarmId(e.target.value)} placeholder="Farm ID" style={{ width: 126, fontSize: 11, padding: "6px 8px", borderRadius: 8, border: 0, background: "rgba(255,255,255,0.15)", color: "white" }} />
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <input value={farmName} onChange={e => setFarmName(e.target.value)} aria-label="Farm label" placeholder="Farm label, e.g. TEST-5532" style={{ width: 166, fontSize: 11, padding: "6px 8px", borderRadius: 8, border: 0, background: "rgba(255,255,255,0.15)", color: "white" }} />
+            <input value={farmId} onChange={e => saveFarmId(e.target.value)} aria-label="Farm ID" placeholder="Farm ID" style={{ width: 112, fontSize: 11, padding: "6px 8px", borderRadius: 8, border: 0, background: "rgba(255,255,255,0.15)", color: "white" }} />
             <button onClick={createFarm} data-testid="new-farm" style={{ fontSize: 12, padding: "7px 12px", borderRadius: 20, border: 0, background: "#FFFDF6", color: "#1F4D2B", fontWeight: 700, cursor: "pointer" }}>+ New farm</button>
           </div>
         </div>
