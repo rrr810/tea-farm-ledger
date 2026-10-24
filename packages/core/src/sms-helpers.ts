@@ -85,6 +85,72 @@ export function buildDailySms(opts: {
 
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
+function compactSmsText(value: string, maxLength: number): string {
+  // Daily notifications are deliberately GSM-7/ASCII so a pasted emoji, curly
+  // quote, or long no-plucking reason does not silently increase the SMS bill.
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength)
+    .trim();
+}
+
+function kgText(kgUnits: number): string {
+  return (kgUnits / 10).toFixed(1);
+}
+
+/** A concise, individual daily kg/pay notification for a consented picker. */
+export function buildDailyWorkerSms(opts: {
+  dateLabel: string;
+  kgUnits: number;
+  amountKes: number;
+}): { body: string; segments: number; gsm7: boolean } {
+  const body = `Tea Ledger ${compactSmsText(opts.dateLabel, 18)}: ${kgText(opts.kgUnits)}kg, estimated pay KES ${Math.round(opts.amountKes)}.`;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
+/** Transparent status when a consented picker has no payable entry on a completed day. */
+export function buildDailyAbsentSms(opts: {
+  dateLabel: string;
+}): { body: string; segments: number; gsm7: boolean } {
+  const body = `Tea Ledger ${compactSmsText(opts.dateLabel, 18)}: no kg or pay recorded today.`;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
+/**
+ * Owner/Peter daily summary designed to fit one GSM-7 part for the current small
+ * farm while still naming every recorded picker. The actual segment count is
+ * returned and stored; more workers may naturally require more than one part.
+ */
+export function buildCompactDailyOwnerSms(opts: {
+  dateLabel: string;
+  totalKgUnits: number;
+  pickerCount: number;
+  totalPayEstimateKes: number;
+  lines: Array<{ name: string; kgUnits: number; amountKes: number }>;
+}): { body: string; segments: number; gsm7: boolean } {
+  const rows = [...opts.lines]
+    .sort((a, b) => a.name.localeCompare(b.name, "en"))
+    .map((line) => `${compactSmsText(line.name, 22)} ${kgText(line.kgUnits)}kg/KES${Math.round(line.amountKes)}`)
+    .join("; ");
+  const summary = `Tea Ledger ${compactSmsText(opts.dateLabel, 18)}: ${opts.pickerCount} pickers, ${kgText(opts.totalKgUnits)}kg, estimated KES${Math.round(opts.totalPayEstimateKes)}.`;
+  const body = rows ? `${summary} ${rows}.` : summary;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
+/** Shared no-plucking notification for both the owner summary and consented workers. */
+export function buildDailyNoPluckingSms(opts: {
+  dateLabel: string;
+  reason: string;
+}): { body: string; segments: number; gsm7: boolean } {
+  const reason = compactSmsText(opts.reason, 72) || "not recorded";
+  const body = `Tea Ledger ${compactSmsText(opts.dateLabel, 18)}: no plucking today. Reason: ${reason}.`;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
 export function buildFridayEstimateSms(opts: {
   dateLabel: string;
   totalKgUnits: number;

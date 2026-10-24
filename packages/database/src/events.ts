@@ -4,6 +4,8 @@ import { getDb } from "./db.js";
 
 export type PushResult = {
   accepted: number;
+  /** IDs newly written by this request; callers may safely run post-sync effects only for these. */
+  acceptedEventIds: string[];
   duplicates: number;
   flaggedAsCorrection: number;
   conflicts: number;
@@ -41,6 +43,7 @@ const WORKER_PROJECTION_EVENTS = new Set([
 export async function pushEvents(events: LedgerEvent[], dbClient?: Awaited<ReturnType<typeof getDb>>): Promise<PushResult> {
   const db = dbClient ?? (await getDb());
   let accepted = 0;
+  const acceptedEventIds: string[] = [];
   let duplicates = 0;
   let flaggedAsCorrection = 0;
   let conflicts = 0;
@@ -83,7 +86,7 @@ export async function pushEvents(events: LedgerEvent[], dbClient?: Awaited<Retur
       }
     }
 
-    await db.query(
+    const inserted = await db.query(
       `INSERT INTO events (event_id, farm_id, device_id, author, event_type, payload, business_date, client_timestamp, server_received_at, correction_flag, conflict_flag)
        VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,NOW(),$9,$10)
        ON CONFLICT (event_id) DO NOTHING`,
@@ -100,7 +103,15 @@ export async function pushEvents(events: LedgerEvent[], dbClient?: Awaited<Retur
         conflictFlag,
       ],
     );
+    // A concurrent device may have inserted the same event after the existence
+    // check. It is a duplicate, not a new authorization for side effects.
+    if (inserted.rowCount === 0) {
+      duplicates++;
+      collectWorkerProjectionTarget(ev, workerTargets);
+      continue;
+    }
     accepted++;
+    acceptedEventIds.push(ev.event_id);
 
     if (WORKER_PROJECTION_EVENTS.has(ev.event_type)) {
       if (collectWorkerProjectionTarget(ev, workerTargets)) {
@@ -128,7 +139,7 @@ export async function pushEvents(events: LedgerEvent[], dbClient?: Awaited<Retur
     conflicts += await projectWorkerEvents(target, db);
   }
 
-  return { accepted, duplicates, flaggedAsCorrection, conflicts };
+  return { accepted, acceptedEventIds, duplicates, flaggedAsCorrection, conflicts };
 }
 
 export type PullResult = { events: LedgerEvent[]; nextCursor: number | null };

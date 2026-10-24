@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { countSegments, isGsm7, buildWeeklyReceiptSms, buildDailySms } from "../sms-helpers.js";
+import {
+  countSegments,
+  isGsm7,
+  buildWeeklyReceiptSms,
+  buildDailySms,
+  buildDailyWorkerSms,
+  buildDailyAbsentSms,
+  buildCompactDailyOwnerSms,
+  buildDailyNoPluckingSms,
+} from "../sms-helpers.js";
 describe("sms", () => {
   it("counts segments", () => {
     expect(countSegments("a".repeat(160))).toBe(1);
@@ -15,6 +24,39 @@ describe("sms", () => {
     const { body, segments } = buildWeeklyReceiptSms({ workerName: "Jane", tokens: { Mon: "12", Tue: "14", Wed: "0", Thu: "A", Fri: "14", Sat: "NP" }, totalKgUnits: 400, rateCentsPerKg: 900, amountKes: 360, weekLabel: "Wk43" });
     expect(segments).toBeLessThanOrEqual(2); expect(body).toContain("Wk43 Jane:");
   });
+  it("keeps the live daily worker, owner, and no-plucking templates GSM-7 and one part for the current two-worker farm", () => {
+    const worker = buildDailyWorkerSms({ dateLabel: "24 Oct", kgUnits: 450, amountKes: 405 });
+    const absent = buildDailyAbsentSms({ dateLabel: "24 Oct" });
+    const owner = buildCompactDailyOwnerSms({
+      dateLabel: "24 Oct",
+      totalKgUnits: 900,
+      pickerCount: 2,
+      totalPayEstimateKes: 810,
+      lines: [
+        { name: "Maggie jep", kgUnits: 450, amountKes: 405 },
+        { name: "Anne k", kgUnits: 450, amountKes: 405 },
+      ],
+    });
+    const noPlucking = buildDailyNoPluckingSms({ dateLabel: "24 Oct", reason: "heavy rain - no leaf" });
+
+    expect(worker.body).toBe("Tea Ledger 24 Oct: 45.0kg, estimated pay KES 405.");
+    expect(absent.body).toContain("no kg or pay recorded today");
+    expect(owner.body).toContain("Anne k 45.0kg/KES405");
+    expect(owner.body).toContain("Maggie jep 45.0kg/KES405");
+    expect(noPlucking.body).toContain("Reason: heavy rain - no leaf.");
+    for (const message of [worker, absent, owner, noPlucking]) {
+      expect(message.gsm7).toBe(true);
+      expect(message.segments).toBe(1);
+    }
+  });
+
+  it("sanitizes and caps a no-plucking reason so it does not silently become Unicode", () => {
+    const result = buildDailyNoPluckingSms({ dateLabel: "24 Oct", reason: "Heavy rain — the field is soaked 😀" });
+    expect(result.gsm7).toBe(true);
+    expect(result.body).not.toContain("—");
+    expect(result.body).not.toContain("😀");
+  });
+
   it("builds Peter's readable daily table with every picker", () => {
     const workers = [
       { name: "Kiptoo", kgUnits: 455 },

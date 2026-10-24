@@ -65,6 +65,7 @@ describe("sync idempotency and cursor", () => {
     // order. The server materializes the profile only after both events land.
     const r1 = await pushEvents([employment, registration], db);
     expect(r1.accepted).toBe(2);
+    expect(r1.acceptedEventIds).toEqual(expect.arrayContaining([employment.event_id, registration.event_id]));
     expect(r1.duplicates).toBe(0);
     expect(r1.conflicts).toBe(0);
 
@@ -94,6 +95,7 @@ describe("sync idempotency and cursor", () => {
 
     const r2 = await pushEvents([employment, registration], db);
     expect(r2.accepted).toBe(0);
+    expect(r2.acceptedEventIds).toEqual([]);
     expect(r2.duplicates).toBe(2);
     const workerCount = await db.query("SELECT COUNT(*)::int AS count FROM workers WHERE worker_id=$1", [workerId]);
     const periodCount = await db.query("SELECT COUNT(*)::int AS count FROM employment_periods WHERE worker_id=$1", [workerId]);

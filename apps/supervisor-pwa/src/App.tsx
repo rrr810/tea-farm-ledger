@@ -362,7 +362,7 @@ export default function App() {
           {noPlucking && (
             <div style={{ marginTop: 12 }}>
               <input placeholder="Why? e.g. heavy rain, no leaf, holiday" value={noPluckReason} disabled={dayDone} onChange={e => setNoPluckReason(e.target.value)} style={{ width: "100%", padding: "12px 14px", fontSize: 15, borderRadius: 10, border: "2px solid #E3A72F", background: "#FFFBF0", boxSizing: "border-box", opacity: dayDone ? 0.7 : 1 }} />
-              <div style={{ fontSize: 12, color: "#8A6A2A", marginTop: 6 }}>Mock daily notification preview: “No plucking {selectedDate}: {noPluckReason || "—"}”</div>
+              <div style={{ fontSize: 12, color: "#8A6A2A", marginTop: 6 }}>Daily notification preview: “No plucking {selectedDate}: {noPluckReason || "—"}”</div>
               <button onClick={markDoneForDay} disabled={dayDone || !noPluckReason.trim()} style={{ width: "100%", marginTop: 10, background: dayDone ? "#EAF3E2" : "#E3A72F", color: dayDone ? "#2D6A3E" : "#23231F", padding: "12px 14px", borderRadius: 10, border: dayDone ? "1px solid #A5D6A7" : 0, fontWeight: 800, cursor: dayDone || !noPluckReason.trim() ? "default" : "pointer", opacity: dayDone || !noPluckReason.trim() ? 0.65 : 1 }}>{dayDone ? "✓ No-plucking day logged" : "Confirm no-plucking day"}</button>
             </div>
           )}
@@ -416,7 +416,7 @@ export default function App() {
           <button data-testid="submit-saturday" onClick={submitSaturday} style={{ flex: 1, background: saturday ? "white" : "#F5F1E3", color: saturday ? "#7A4A00" : "#9A9A9A", padding: "16px 12px", borderRadius: 14, border: `2px solid ${saturday ? "#E3A72F" : "#D9D2BC"}`, fontWeight: 800, fontSize: 13, cursor: saturday ? "pointer" : "not-allowed", opacity: saturday ? 1 : 0.7 }} title={saturday ? "Lock week Mon–Sat" : "Only on Saturday"}>Submit Saturday FINAL</button>
         </div>
         <div style={{ fontSize: 11, color: "#8A8A8A", textAlign: "center", marginTop: 8 }}>{dayDone ? "Completed days stay locked to protect the daily record. Start the next day for a fresh sheet." : "Worker changes auto-sync when online. Tap Done to queue the complete day — no half-day kg is sent."}</div>
-        {!saturday && <div style={{ fontSize: 11, color: "#9E8A5A", textAlign: "center", marginTop: 4 }}>Saturday FINAL locks weekly pay — available only on Saturday</div>}
+        <div style={{ fontSize: 11, color: "#9E8A5A", textAlign: "center", marginTop: 4 }}>{saturday ? "Saturday FINAL is available for this selected date; it locks only this Mon-Sat week." : "Saturday FINAL is disabled only because the selected date is not Saturday. A prior lock does not disable later Saturdays."}</div>
 
         <div style={{ marginTop: 24, background: "#FFFDF6", borderRadius: 16, border: "1px solid #D9D2BC", overflow: "hidden" }}>
           <button onClick={() => setTab(tab === "workers" ? "daily" : "workers")} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", background: "#FFFDF6", border: 0, cursor: "pointer", textAlign: "left" }}>

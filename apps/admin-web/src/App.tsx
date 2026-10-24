@@ -1,8 +1,19 @@
 import { useEffect, useState } from "react";
 import { api, token, setToken, clearToken, farmId, setFarmId } from "./api.js";
 import { resolveFarmSelection } from "./farmSelection.js";
+import { currentWeekStartEAT } from "./week.js";
 
 type Tab = "login" | "dashboard" | "workers" | "payroll" | "conflicts" | "sms" | "reports" | "import" | "settings" | "audit";
+type PayrollLine = { name: string; totalKg: number; amountKes: number; flags: string[]; maskedPhone: string; daysWorked: number };
+type PayrollSheetResponse = {
+  sheet: {
+    weekStart: string;
+    weekEnd: string;
+    status: string;
+    lines: PayrollLine[];
+    totals: { totalKg: number; totalAmountKes: number };
+  };
+};
 
 // ---- reporting helpers (quarter math + lightweight SVG charts, no deps) ----
 function quarterLabel(d = new Date()): string {
@@ -51,6 +62,29 @@ function BarChart({ data, color }: { data: Array<{ label: string; value: number 
   );
 }
 
+function WeekPayTable({ title, data, live }: { title: string; data: PayrollSheetResponse | null; live?: boolean }) {
+  const sheet = data?.sheet;
+  return <section className="week-pay-card">
+    <div className="week-pay-heading">
+      <div>
+        <h3>{title}</h3>
+        {sheet ? <p className="muted">{sheet.weekStart} to {sheet.weekEnd} · {sheet.status === "locked" ? "Final locked record" : "Live estimate from synced entries"}</p> : <p className="muted">Loading payroll data…</p>}
+      </div>
+      {live && <span className="pill">LIVE</span>}
+    </div>
+    {sheet ? <>
+      <div className="week-totals">
+        <div><span>Farm total</span><strong>{sheet.totals.totalKg.toFixed(1)} kg</strong></div>
+        <div><span>{sheet.status === "locked" ? "Final payroll" : "Estimated pay"}</span><strong>KES {sheet.totals.totalAmountKes.toLocaleString()}</strong></div>
+        <div><span>Workers</span><strong>{sheet.lines.length}</strong></div>
+      </div>
+      {sheet.lines.length === 0 ? <p className="muted empty-copy">No synced plucking entries for this week yet.</p> : <div className="table-wrap"><table className="week-pay-table"><thead><tr><th>Worker</th><th>Days</th><th>Kg</th><th>{sheet.status === "locked" ? "Final salary" : "Estimated salary"}</th><th>Checks</th></tr></thead><tbody>
+        {sheet.lines.map((line) => <tr key={`${sheet.weekStart}-${line.name}`}><td>{line.name}</td><td>{line.daysWorked}</td><td>{line.totalKg.toFixed(1)}</td><td>KES {line.amountKes.toLocaleString()}</td><td>{line.flags.length ? line.flags.join(", ") : "—"}</td></tr>)}
+      </tbody></table></div>}
+    </> : null}
+  </section>;
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>(token() ? "dashboard" : "login");
   const [msg, setMsg] = useState("");
@@ -64,8 +98,11 @@ export default function App() {
   // data
   const [workers, setWorkers] = useState<unknown[]>([]);
   const [payrollWeeks, setPayrollWeeks] = useState<unknown[]>([]);
-  const [payrollSheet, setPayrollSheet] = useState<null | { sheet: { weekStart: string; weekEnd: string; status: string; lines: Array<{ name: string; totalKg: number; amountKes: number; flags: string[]; maskedPhone: string; daysWorked: number }>; totals: { totalKg: number; totalAmountKes: number } } }>(null);
-  const [weekStart, setWeekStart] = useState("2026-11-23");
+  const [payrollSheet, setPayrollSheet] = useState<PayrollSheetResponse | null>(null);
+  const [currentWeekSheet, setCurrentWeekSheet] = useState<PayrollSheetResponse | null>(null);
+  const [latestLockedSheet, setLatestLockedSheet] = useState<PayrollSheetResponse | null>(null);
+  const [dashboardLoadedAt, setDashboardLoadedAt] = useState<string | null>(null);
+  const [weekStart, setWeekStart] = useState(() => currentWeekStartEAT());
   const [conflicts, setConflicts] = useState<unknown[]>([]);
   const [corrections, setCorrections] = useState<unknown[]>([]);
   const [smsLog, setSmsLog] = useState<unknown[]>([]);
@@ -102,8 +139,10 @@ export default function App() {
 
   async function loadDashboard() {
     if (!currentFarm) return;
+    setCurrentWeekSheet(null); setLatestLockedSheet(null); setDashboardLoadedAt(null);
     try {
-      const [w, pw, cf, cr, sms, mon, hard, au, ra] = await Promise.all([
+      const liveWeekStart = currentWeekStartEAT();
+      const [w, pw, cf, cr, sms, mon, hard, au, ra, liveSheet] = await Promise.all([
         api.workers(currentFarm) as Promise<{ workers: unknown[] }>,
         api.payrollWeeks(currentFarm) as Promise<{ weeks: unknown[] }>,
         api.conflicts(currentFarm) as Promise<{ conflicts: unknown[] }>,
@@ -113,8 +152,17 @@ export default function App() {
         api.hardest(currentFarm, quarter) as Promise<{ ranking: unknown[] }>,
         api.auditLog(currentFarm) as Promise<{ logs: unknown[] }>,
         api.rates(currentFarm) as Promise<{ rates: unknown[] }>,
+        api.payroll(currentFarm, liveWeekStart) as Promise<PayrollSheetResponse>,
       ]);
-      setWorkers(w.workers ?? []); setPayrollWeeks(pw.weeks ?? []); setConflicts(cf.conflicts ?? []); setCorrections(cr.corrections ?? []); setSmsLog(sms.messages ?? []); setMonthly(mon.monthly ?? []); setHardest(hard.ranking ?? []); setAudit(au.logs ?? []); setRates(ra.rates ?? []);
+      const weeks = pw.weeks ?? [];
+      const latestLocked = (weeks as Array<{ week_start: string; status: string }>)
+        .filter((week) => week.status === "locked")
+        .sort((a, b) => b.week_start.localeCompare(a.week_start))[0];
+      const lockedSheet = latestLocked
+        ? await api.payroll(currentFarm, latestLocked.week_start) as PayrollSheetResponse
+        : null;
+      setWorkers(w.workers ?? []); setPayrollWeeks(weeks); setConflicts(cf.conflicts ?? []); setCorrections(cr.corrections ?? []); setSmsLog(sms.messages ?? []); setMonthly(mon.monthly ?? []); setHardest(hard.ranking ?? []); setAudit(au.logs ?? []); setRates(ra.rates ?? []);
+      setCurrentWeekSheet(liveSheet); setLatestLockedSheet(lockedSheet); setDashboardLoadedAt(new Date().toLocaleTimeString());
     } catch (e) { toast(String(e)); }
   }
 
@@ -124,8 +172,8 @@ export default function App() {
   async function loadPayroll() {
     if (!currentFarm) return;
     try {
-      const res = await api.payroll(currentFarm, weekStart) as { sheet: never };
-      setPayrollSheet(res as never);
+      const res = await api.payroll(currentFarm, weekStart) as PayrollSheetResponse;
+      setPayrollSheet(res);
     } catch (e) { toast(String(e)); }
   }
 
@@ -180,6 +228,15 @@ export default function App() {
         <div style={{ background: conflicts.length ? "#FDEDEC" : "#F2F5EA", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{conflicts.length}</div><div style={{ fontSize: 12, color: "#3F3F38" }}>Unresolved conflicts</div></div>
         <div style={{ background: corrections.length ? "#FFF3E0" : "#F2F5EA", padding: 12, borderRadius: 8, minWidth: 140 }}><div style={{ fontSize: 22, fontWeight: 800 }}>{corrections.length}</div><div style={{ fontSize: 12, color: "#3F3F38" }}>Correction requests</div></div>
       </div>
+      <div className="dashboard-week-toolbar">
+        <div><h4>Weekly pay overview</h4><p className="muted" style={{ margin: "4px 0 0" }}>Calculated on the server from synced entries and farm rates — no dashboard-side payroll math.</p></div>
+        <button className="secondary" onClick={loadDashboard}>Refresh</button>
+      </div>
+      <div className="dashboard-week-section">
+        <WeekPayTable title="This week" data={currentWeekSheet} live />
+        {latestLockedSheet ? <WeekPayTable title="Latest locked week" data={latestLockedSheet} /> : <section className="week-pay-card"><h3 style={{ marginTop: 0 }}>Latest locked week</h3><p className="muted">No weekly payroll has been locked yet. Saturday FINAL locks the selected Monday–Saturday week after server checks pass.</p></section>}
+      </div>
+      {dashboardLoadedAt && <p className="muted" style={{ marginBottom: 0 }}>Overview refreshed at {dashboardLoadedAt}.</p>}
       <h4>Pay Weeks</h4>
       <table><thead><tr><th>Week</th><th>Status</th><th>Locked At</th></tr></thead><tbody>
         {(payrollWeeks as Array<{ week_start: string; week_end: string; status: string; locked_at: string | null }>).map(w => (
