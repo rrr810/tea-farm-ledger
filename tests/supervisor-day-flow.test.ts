@@ -1,10 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { activeDateStorageKey, nextCalendarDate, shouldAutoSyncOutbox } from "../apps/supervisor-pwa/src/dayFlow.js";
+import { activeDateStorageKey, nextCalendarDate, recoverActiveDate, shouldAutoSyncOutbox } from "../apps/supervisor-pwa/src/dayFlow.js";
 
 describe("Supervisor day flow", () => {
   it("uses a per-farm key to persist the active next-day sheet", () => {
     expect(activeDateStorageKey("farm-a")).toBe("active_date:farm-a");
     expect(activeDateStorageKey("farm-a")).not.toBe(activeDateStorageKey("farm-b"));
+  });
+
+  it("migrates an old completed-today shell onto a blank next-day sheet", () => {
+    expect(recoverActiveDate({
+      farmId: "farm-a",
+      savedActiveDate: null,
+      today: "2026-10-24",
+      todayIsDone: true,
+    })).toBe("2026-10-25");
+    expect(recoverActiveDate({
+      farmId: "farm-a",
+      savedActiveDate: "2026-10-25",
+      today: "2026-10-24",
+      todayIsDone: true,
+    })).toBe("2026-10-25");
+    expect(recoverActiveDate({
+      farmId: "farm-a",
+      savedActiveDate: null,
+      today: "2026-10-24",
+      todayIsDone: false,
+    })).toBe("2026-10-24");
   });
 
   it("advances an ISO calendar date without changing the completed day", () => {

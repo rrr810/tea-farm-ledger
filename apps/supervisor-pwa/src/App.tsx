@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { db, todayEAT } from "./db.js";
 import type { LocalWorker, DailyEntryLocal, OutboxEvent } from "./db.js";
 import { normalizeKePhone, calculateWorkerWeekPayKes } from "@tea-ledger/core";
-import { activeDateStorageKey, nextCalendarDate, shouldAutoSyncOutbox } from "./dayFlow.js";
+import { activeDateStorageKey, nextCalendarDate, recoverActiveDate, shouldAutoSyncOutbox } from "./dayFlow.js";
 
 type Tab = "daily" | "workers";
 
@@ -12,8 +12,18 @@ function getDeviceId() {
   return id;
 }
 function activeDateForFarm(farmId: string) {
-  if (!farmId) return todayEAT();
-  return localStorage.getItem(activeDateStorageKey(farmId)) ?? todayEAT();
+  const today = todayEAT();
+  const stored = farmId ? localStorage.getItem(activeDateStorageKey(farmId)) : null;
+  const date = recoverActiveDate({
+    farmId,
+    savedActiveDate: stored,
+    today,
+    todayIsDone: !!(farmId && localStorage.getItem(`done:${today}:${farmId}`)),
+  });
+  // Migrate the old in-memory-only auto-roll once, so subsequent launches
+  // preserve the same fresh sheet even after the completed day is locked.
+  if (farmId && !stored && date !== today) localStorage.setItem(activeDateStorageKey(farmId), date);
+  return date;
 }
 function isSaturdayEAT(d: string) {
   const date = new Date(d + "T12:00:00");
