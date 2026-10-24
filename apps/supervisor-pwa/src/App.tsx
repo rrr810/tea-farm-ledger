@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from "react";
 import { db, todayEAT } from "./db.js";
-import type { LocalWorker, DailyEntryLocal } from "./db.js";
+import type { LocalWorker, DailyEntryLocal, OutboxEvent } from "./db.js";
 import { normalizeKePhone, calculateWorkerWeekPayKes } from "@tea-ledger/core";
+import { activeDateStorageKey, nextCalendarDate, shouldAutoSyncOutbox } from "./dayFlow.js";
 
 type Tab = "daily" | "workers";
 
@@ -10,11 +11,9 @@ function getDeviceId() {
   if (!id) { id = crypto.randomUUID(); localStorage.setItem("device_id", id); }
   return id;
 }
-function nextDateEAT(d: string) {
-  // d is YYYY-MM-DD, add 1 day in EAT calendar (just ISO date math, no TZ shift needed)
-  const date = new Date(d + "T12:00:00");
-  date.setDate(date.getDate() + 1);
-  return date.toISOString().slice(0, 10);
+function activeDateForFarm(farmId: string) {
+  if (!farmId) return todayEAT();
+  return localStorage.getItem(activeDateStorageKey(farmId)) ?? todayEAT();
 }
 function isSaturdayEAT(d: string) {
   const date = new Date(d + "T12:00:00");
@@ -36,7 +35,7 @@ export default function App() {
   const [farmId, setFarmId] = useState(localStorage.getItem("farm_id") ?? "");
   const [farmName, setFarmName] = useState(localStorage.getItem("farm_name") ?? "");
   const [workers, setWorkers] = useState<LocalWorker[]>([]);
-  const [selectedDate, setSelectedDate] = useState(todayEAT());
+  const [selectedDate, setSelectedDate] = useState(() => activeDateForFarm(farmId));
   const [noPlucking, setNoPlucking] = useState(false);
   const [noPluckReason, setNoPluckReason] = useState("");
   const [daily, setDaily] = useState<DailyEntryLocal[]>([]);
@@ -53,8 +52,9 @@ export default function App() {
   const [fireDate, setFireDate] = useState(todayEAT());
   const [fireReason, setFireReason] = useState("");
 
-  // Auto-sync debounce ref
+  // Keep both scheduled and manually requested syncs to one in-flight request.
   const autoSyncTimer = useRef<number | null>(null);
+  const syncingRef = useRef(false);
 
   function setToast(text: string, type: "info" | "error" | "success" = "info") {
     setMsg(text); setMsgType(type);
@@ -79,22 +79,55 @@ export default function App() {
     return () => { window.removeEventListener("online", onO); window.removeEventListener("offline", onF); clearInterval(id); };
   }, [selectedDate, farmId]);
 
-  // Auto-sync: when online and pending and not syncing, and last action was Done (not half-day), sync in background
+  // Worker/employment changes can safely sync as soon as the phone is online.
+  // Kg remains local until Done queues the complete day's batch, so this never
+  // sends a half-day kg entry merely because connectivity is available.
   useEffect(() => {
     if (!online || pending === 0 || syncing) return;
-    // Only auto-sync if the oldest pending is from a completed day (day.confirmed or pluck with day done)
-    // Simple: if we have dayDone or pending has day.confirmed, auto-sync
-    // Check outbox for day.confirmed or pluck.logged that belongs to a done day
-    db.outbox.toArray().then(items => {
-      const hasDone = items.some(i => i.type === "day.confirmed" || i.type === "day.plucking_set" || i.type === "week.submitted");
-      if (!hasDone) return; // don't send half-day kg alone — wait for Done
+    let cancelled = false;
+    void db.outbox.toArray().then(items => {
+      if (cancelled || !shouldAutoSyncOutbox(items)) return;
       if (autoSyncTimer.current) window.clearTimeout(autoSyncTimer.current);
-      autoSyncTimer.current = window.setTimeout(() => { syncNow(true); }, 1200);
+      autoSyncTimer.current = window.setTimeout(() => { void syncNow(false); }, 900);
     });
-  }, [pending, online]);
+    return () => { cancelled = true; };
+  }, [pending, online, syncing]);
+
+  function activateDate(date: string, targetFarmId = farmId) {
+    if (targetFarmId) localStorage.setItem(activeDateStorageKey(targetFarmId), date);
+    setSelectedDate(date);
+    // Never briefly render the prior day's kg on a fresh sheet.
+    setDaily([]);
+    setNoPlucking(false);
+    setNoPluckReason("");
+    setDayDone(!!localStorage.getItem(`done:${date}:${targetFarmId}`));
+  }
+
+  function persistNextDay(date = selectedDate, targetFarmId = farmId) {
+    const next = nextCalendarDate(date);
+    if (targetFarmId) localStorage.setItem(activeDateStorageKey(targetFarmId), next);
+    return next;
+  }
+
+  function startNextDay() {
+    const next = persistNextDay();
+    activateDate(next);
+    setToast(`Next day ${next} — fresh sheet, yesterday kept in phone storage`, "info");
+  }
+
+  function scheduleAutoOpenNextDay() {
+    // Store the next sheet before the transition: a reload during this short
+    // confirmation state still opens the blank day, never the locked one.
+    const next = persistNextDay();
+    window.setTimeout(() => {
+      activateDate(next);
+      setToast(`Next day ${next} — fresh sheet, yesterday kept in phone storage`, "info");
+    }, 1800);
+  }
 
   async function saveFarmId(v: string) {
     setFarmId(v); localStorage.setItem("farm_id", v);
+    activateDate(activeDateForFarm(v), v);
     if (v && online) {
       try {
         const res = await fetch(`/api/farms/${v}/workers`);
@@ -138,7 +171,7 @@ export default function App() {
     await db.employment.add({ id: empId, worker_id, farm_id: farmId, start_date: selectedDate, end_date: null });
     const empEv = { event_id: crypto.randomUUID(), farm_id: farmId, device_id, author: "supervisor", event_type: "employment.started", payload: { worker_id, start_date: selectedDate }, business_date: selectedDate, client_timestamp: new Date().toISOString() };
     await db.outbox.add({ event_id: empEv.event_id, farm_id: farmId, payload: empEv, createdAt: new Date().toISOString(), type: "employment.started" });
-    setToast(`${worker.full_name} added — will sync when online`, "success");
+    setToast(`${worker.full_name} added — auto-syncing while online`, "success");
     setFullName(""); setPhone(""); setConsent(false); setShowAddWorker(false);
   }
   async function fireWorker() {
@@ -151,7 +184,7 @@ export default function App() {
     const ev = { event_id: crypto.randomUUID(), farm_id: farmId, device_id, author: "supervisor", event_type: "employment.ended", payload: { worker_id: selectedWorkerId, end_date: fireDate, reason: fireReason }, business_date: fireDate, client_timestamp: new Date().toISOString() };
     await db.outbox.add({ event_id: ev.event_id, farm_id: farmId, payload: ev, createdAt: new Date().toISOString(), type: "employment.ended" });
     await db.workers.update(selectedWorkerId, { status: "inactive" });
-    setToast(`Closed — ${period.start_date} to ${fireDate} inclusive. History kept.`, "success");
+    setToast(`Closed — ${period.start_date} to ${fireDate} inclusive. History kept; auto-syncing while online.`, "success");
     setSelectedWorkerId("");
   }
   async function rehireWorker() {
@@ -166,7 +199,7 @@ export default function App() {
     const device_id = getDeviceId();
     const ev = { event_id: crypto.randomUUID(), farm_id: farmId, device_id, author: "supervisor", event_type: "employment.started", payload: { worker_id: selectedWorkerId, start_date: selectedDate }, business_date: selectedDate, client_timestamp: new Date().toISOString() };
     await db.outbox.add({ event_id: ev.event_id, farm_id: farmId, payload: ev, createdAt: new Date().toISOString(), type: "employment.started" });
-    setToast(`Rehired from ${selectedDate} — history preserved`, "success");
+    setToast(`Rehired from ${selectedDate} — history preserved; auto-syncing while online.`, "success");
     setSelectedWorkerId("");
   }
 
@@ -206,14 +239,10 @@ export default function App() {
       await db.outbox.add({ event_id: ev.event_id, farm_id: farmId, payload: ev, createdAt: new Date().toISOString(), type: "day.plucking_set" });
       localStorage.setItem(`done:${selectedDate}:${farmId}`, "1");
       setDayDone(true);
-      setToast(`Day closed — Owner SMS: “No plucking ${selectedDate}: ${noPluckReason}” — auto-syncing…`, "success");
-      if (online) setTimeout(() => syncNow(false), 600);
-      // Auto-roll to next day after 1.2s
-      setTimeout(() => {
-        const next = nextDateEAT(selectedDate);
-        setSelectedDate(next); setNoPlucking(false); setNoPluckReason(""); setDayDone(false);
-        setToast(`Rolled to ${next} — ready for next day. Yesterday’s data kept.`, "info");
-      }, 1500);
+      setToast(`No-plucking day closed — syncing complete day…`, "success");
+      if (online) setTimeout(() => void syncNow(false), 600);
+      // Persist before the visual transition, so reload recovery is safe.
+      scheduleAutoOpenNextDay();
       return;
     }
     const present = daily.filter(d => d.present);
@@ -236,13 +265,9 @@ export default function App() {
     localStorage.setItem(`done:${selectedDate}:${farmId}`, "1");
     setDayDone(true);
     setToast(`✓ Done — ${totalKgUnits / 10}kg, ${pickerCount} pickers queued. Auto-syncing…`, "success");
-    if (online) setTimeout(() => syncNow(false), 700);
-    // Auto-roll to next day
-    setTimeout(() => {
-      const next = nextDateEAT(selectedDate);
-      setSelectedDate(next); setDayDone(false);
-      setToast(`Next day ${next} — fresh sheet, yesterday kept in phone storage`, "info");
-    }, 1800);
+    if (online) setTimeout(() => void syncNow(false), 700);
+    // Persist before the visual transition, so reload recovery is safe.
+    scheduleAutoOpenNextDay();
   }
 
   async function submitSaturday() {
@@ -256,11 +281,18 @@ export default function App() {
   }
 
   async function syncNow(manual = true) {
-    if (syncing) return;
-    const all = await db.outbox.toArray();
-    if (!all.length) { if (manual) setToast("All up to date — nothing to sync", "info"); return; }
-    setSyncing(true);
+    if (syncingRef.current) return;
+    // Set the ref before the first await so a timer and a button click cannot
+    // start two pushes with the same outbox snapshot.
+    syncingRef.current = true;
+    let all: OutboxEvent[] = [];
     try {
+      all = await db.outbox.toArray();
+      if (!all.length) {
+        if (manual) setToast("All up to date — nothing to sync", "info");
+        return;
+      }
+      setSyncing(true);
       const events = all.map(o => o.payload);
       const res = await fetch("/api/sync/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ events }) });
       if (!res.ok) throw new Error(await res.text());
@@ -278,7 +310,10 @@ export default function App() {
         if (bad.length) { setToast(`Cleared ${bad.length} bad pending — retry Sync`, "info"); setSyncing(false); return; }
       }
       setToast(`Sync failed — will auto-retry. ${txt.slice(0, 140)}`, "error");
-    } finally { setSyncing(false); }
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+    }
   }
 
   const totalKgUnits = daily.filter(d => d.present).reduce((s, d) => s + d.kgUnits, 0);
@@ -307,7 +342,7 @@ export default function App() {
           <span>{pending > 0 ? <><span style={{ color: "#C67C00", fontWeight: 700 }}>● {pending} to sync</span><span style={{ marginLeft: 8, opacity: 0.7 }}>pending upload</span></> : <span style={{ color: "#2D6A3E", fontWeight: 600 }}>✓ Up to date</span>}{lastSynced ? <span style={{ marginLeft: 10, opacity: 0.5 }}>· {new Date(lastSynced).toLocaleTimeString()}</span> : ""}{syncing ? " · syncing…" : ""}</span>
           <button onClick={() => syncNow(true)} disabled={syncing} style={{ background: pending ? "#E3A72F" : "#EAF3E2", color: pending ? "#5A3E00" : "#2D6A3E", border: 0, borderRadius: 20, padding: "6px 14px", fontWeight: 700, fontSize: 12, cursor: syncing ? "wait" : "pointer", opacity: syncing ? 0.6 : 1 }}>{syncing ? "Syncing…" : "Sync now"}</button>
         </div>
-        {pending > 0 && <div style={{ fontSize: 11, color: "#8A6B2A", marginTop: 6, background: "#FFFBEB", border: "1px solid #FDE68A", padding: "6px 10px", borderRadius: 8 }}>Data stays on phone even if off — syncs only after you tap <b>Done for the day</b>. No half-day sends near internet.</div>}
+        {pending > 0 && <div style={{ fontSize: 11, color: "#8A6B2A", marginTop: 6, background: "#FFFBEB", border: "1px solid #FDE68A", padding: "6px 10px", borderRadius: 8 }}>Worker changes sync automatically while online. Kg stays on the phone until <b>Done for the day</b>, so no half-day kg is sent.</div>}
         {msg && <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 500, background: msgType === "error" ? "#FDEDEC" : msgType === "success" ? "#EAF3E2" : "#FFF8E1", color: msgType === "error" ? "#922B21" : msgType === "success" ? "#1B4D3E" : "#5D4037", border: `1px solid ${msgType === "error" ? "#F5B7B1" : msgType === "success" ? "#A9DFBF" : "#FFE0B2"}` }}>{msg}</div>}
       </div>
 
@@ -316,18 +351,19 @@ export default function App() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: "#6B7D6B", fontWeight: 700 }}>Today</div>
-              <input type="date" value={selectedDate} onChange={e => { setSelectedDate(e.target.value); setDayDone(!!localStorage.getItem(`done:${e.target.value}:${farmId}`)); }} style={{ marginTop: 6, padding: "10px 12px", fontSize: 16, fontWeight: 700, border: "2px solid #2D6A3E", borderRadius: 12, background: "#F2F5EA", minWidth: 160 }} />
-              <div style={{ fontSize: 11, color: "#8A9A8A", marginTop: 4 }}>Auto-rolls to next day after Done — yesterday kept</div>
+              <input type="date" value={selectedDate} onChange={e => activateDate(e.target.value)} style={{ marginTop: 6, padding: "10px 12px", fontSize: 16, fontWeight: 700, border: "2px solid #2D6A3E", borderRadius: 12, background: "#F2F5EA", minWidth: 160 }} />
+              <div style={{ fontSize: 11, color: "#8A9A8A", marginTop: 4 }}>Next sheet is kept after Done, even if the app reloads</div>
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 10, background: noPlucking ? "#FFF3E0" : "#F2F5EA", border: `2px solid ${noPlucking ? "#E3A72F" : "#C8E6C9"}`, padding: "10px 14px", borderRadius: 12, cursor: "pointer" }}>
-              <input type="checkbox" checked={noPlucking} onChange={e => setNoPlucking(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#E3A72F" }} />
+              <input type="checkbox" checked={noPlucking} disabled={dayDone} onChange={e => setNoPlucking(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#E3A72F" }} />
               <span style={{ fontWeight: 700, fontSize: 13, color: noPlucking ? "#7A4A00" : "#2E7D32" }}>{noPlucking ? "✓ No plucking today" : "No plucking today"}</span>
             </label>
           </div>
           {noPlucking && (
             <div style={{ marginTop: 12 }}>
-              <input placeholder="Why? e.g. heavy rain, no leaf, holiday" value={noPluckReason} onChange={e => setNoPluckReason(e.target.value)} style={{ width: "100%", padding: "12px 14px", fontSize: 15, borderRadius: 10, border: "2px solid #E3A72F", background: "#FFFBF0", boxSizing: "border-box" }} />
-              <div style={{ fontSize: 12, color: "#8A6A2A", marginTop: 6 }}>Owner SMS: “No plucking {selectedDate}: {noPluckReason || "—"}”</div>
+              <input placeholder="Why? e.g. heavy rain, no leaf, holiday" value={noPluckReason} disabled={dayDone} onChange={e => setNoPluckReason(e.target.value)} style={{ width: "100%", padding: "12px 14px", fontSize: 15, borderRadius: 10, border: "2px solid #E3A72F", background: "#FFFBF0", boxSizing: "border-box", opacity: dayDone ? 0.7 : 1 }} />
+              <div style={{ fontSize: 12, color: "#8A6A2A", marginTop: 6 }}>Mock daily notification preview: “No plucking {selectedDate}: {noPluckReason || "—"}”</div>
+              <button onClick={markDoneForDay} disabled={dayDone || !noPluckReason.trim()} style={{ width: "100%", marginTop: 10, background: dayDone ? "#EAF3E2" : "#E3A72F", color: dayDone ? "#2D6A3E" : "#23231F", padding: "12px 14px", borderRadius: 10, border: dayDone ? "1px solid #A5D6A7" : 0, fontWeight: 800, cursor: dayDone || !noPluckReason.trim() ? "default" : "pointer", opacity: dayDone || !noPluckReason.trim() ? 0.65 : 1 }}>{dayDone ? "✓ No-plucking day logged" : "Confirm no-plucking day"}</button>
             </div>
           )}
         </div>
@@ -376,10 +412,10 @@ export default function App() {
         )}
 
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-          <button data-testid="confirm-day" onClick={markDoneForDay} disabled={dayDone} style={{ flex: 1, background: dayDone ? "#EAF3E2" : "#E3A72F", color: dayDone ? "#2D6A3E" : "#23231F", padding: "16px 12px", borderRadius: 14, border: dayDone ? "2px solid #A5D6A7" : 0, fontWeight: 800, fontSize: 15, cursor: dayDone ? "default" : "pointer", boxShadow: dayDone ? "none" : "0 2px 10px rgba(227,167,47,0.45)", opacity: dayDone ? 0.9 : 1 }}>{dayDone ? "✓ Done — next day ready" : "✓ Done for the day"}</button>
+          <button data-testid="confirm-day" onClick={dayDone ? startNextDay : markDoneForDay} style={{ flex: 1, background: dayDone ? "#EAF3E2" : "#E3A72F", color: dayDone ? "#2D6A3E" : "#23231F", padding: "16px 12px", borderRadius: 14, border: dayDone ? "2px solid #A5D6A7" : 0, fontWeight: 800, fontSize: 15, cursor: "pointer", boxShadow: dayDone ? "none" : "0 2px 10px rgba(227,167,47,0.45)" }}>{dayDone ? `Start next day → ${nextCalendarDate(selectedDate)}` : noPlucking ? "Confirm no-plucking day" : "✓ Done for the day"}</button>
           <button data-testid="submit-saturday" onClick={submitSaturday} style={{ flex: 1, background: saturday ? "white" : "#F5F1E3", color: saturday ? "#7A4A00" : "#9A9A9A", padding: "16px 12px", borderRadius: 14, border: `2px solid ${saturday ? "#E3A72F" : "#D9D2BC"}`, fontWeight: 800, fontSize: 13, cursor: saturday ? "pointer" : "not-allowed", opacity: saturday ? 1 : 0.7 }} title={saturday ? "Lock week Mon–Sat" : "Only on Saturday"}>Submit Saturday FINAL</button>
         </div>
-        <div style={{ fontSize: 11, color: "#8A8A8A", textAlign: "center", marginTop: 8 }}>{dayDone ? "Data saved on phone — auto-syncs when online, no half-day sends. Phone off/on safe." : "Tap last picker’s kg, then Done — that queues full day (not half) and auto-syncs when near internet"}</div>
+        <div style={{ fontSize: 11, color: "#8A8A8A", textAlign: "center", marginTop: 8 }}>{dayDone ? "Completed days stay locked to protect the daily record. Start the next day for a fresh sheet." : "Worker changes auto-sync when online. Tap Done to queue the complete day — no half-day kg is sent."}</div>
         {!saturday && <div style={{ fontSize: 11, color: "#9E8A5A", textAlign: "center", marginTop: 4 }}>Saturday FINAL locks weekly pay — available only on Saturday</div>}
 
         <div style={{ marginTop: 24, background: "#FFFDF6", borderRadius: 16, border: "1px solid #D9D2BC", overflow: "hidden" }}>
