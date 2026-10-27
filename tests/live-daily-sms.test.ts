@@ -57,6 +57,8 @@ describe("live daily SMS", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const payloads = fetchMock.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string));
     expect(payloads.map((p) => p.phone).sort()).toEqual(["+254700000812", "+254700000813", "+254740793959"].sort());
+    expect(payloads.find((p) => p.phone === "+254700000812").message).toBe("Dear Anne, your tea record for 24 Oct is 45.0kg. Estimated pay: KES 405.");
+    expect(payloads.find((p) => p.phone === "+254700000813").message).toBe("Dear Maggie, your tea record for 24 Oct is 45.0kg. Estimated pay: KES 405.");
     expect(payloads.find((p) => p.phone === "+254740793959").message).toContain("2 pickers, 90.0kg");
     expect(payloads.every((p) => typeof p.trackingId === "string" && p.trackingId.length > 0)).toBe(true);
 
@@ -86,7 +88,7 @@ describe("live daily SMS", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
     const noEntryPayload = JSON.parse((fetchMock.mock.calls[3][1] as RequestInit).body as string);
     expect(noEntryPayload.phone).toBe("+254700000819");
-    expect(noEntryPayload.message).toContain("no kg or pay recorded today");
+    expect(noEntryPayload.message).toBe("Dear No, your tea record for 24 Oct has no kg or pay recorded today.");
   });
 
   it("sends no-plucking wording once to every consented roster member plus the temporary owner recipient", async () => {
@@ -101,7 +103,9 @@ describe("live daily SMS", () => {
     // 3 employed consented workers in this fixture, plus one owner/Peter summary.
     expect(fetchMock).toHaveBeenCalledTimes(4);
     const payloads = fetchMock.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string));
-    expect(payloads.every((payload) => payload.message.includes("no plucking today"))).toBe(true);
+    expect(payloads.find((payload) => payload.phone === "+254700000812").message).toMatch(/^Dear Anne, no plucking on 25 Oct\. Reason: Heavy rain x+/);
+    expect(payloads.find((payload) => payload.phone === "+254700000813").message).toMatch(/^Dear Maggie, no plucking on 25 Oct\. Reason: Heavy rain x+/);
+    expect(payloads.find((payload) => payload.phone === "+254740793959").message).toContain("no plucking today");
     expect(payloads.every((payload) => payload.message.length <= 160)).toBe(true);
     expect(payloads.map((payload) => payload.phone)).toContain("+254740793959");
   });

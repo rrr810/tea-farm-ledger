@@ -4,6 +4,7 @@ import {
   buildCompactDailyOwnerSms,
   buildDailyAbsentSms,
   buildDailyNoPluckingSms,
+  buildDailyWorkerNoPluckingSms,
   buildDailyWorkerSms,
   calculateWorkerWeekPayKes,
   countSegments,
@@ -215,12 +216,12 @@ export async function sendLiveDailySms(opts: { farmId: string; date: string }) {
     if (!phone) continue;
     let body: string;
     if (!recipient.present) {
-      body = buildDailyAbsentSms({ dateLabel }).body;
+      body = buildDailyAbsentSms({ workerName: recipient.name, dateLabel }).body;
     } else if (recipient.kgUnits !== null) {
       // Shared integer money core: the daily figure is an estimate, but it
       // follows the same half-up KES rounding as payroll rather than browser math.
       const amountKes = calculateWorkerWeekPayKes([{ kgUnits: recipient.kgUnits, rateCentsPerKg }]);
-      body = buildDailyWorkerSms({ dateLabel, kgUnits: recipient.kgUnits, amountKes }).body;
+      body = buildDailyWorkerSms({ workerName: recipient.name, dateLabel, kgUnits: recipient.kgUnits, amountKes }).body;
       ownerLines.push({ name: recipient.name, kgUnits: recipient.kgUnits, amountKes });
     } else {
       // No kg field is not a safe basis for a financial message.
@@ -271,7 +272,7 @@ export async function sendLiveNoPluckingSms(opts: { farmId: string; date: string
   const adapter = liveAdapter();
   if (!adapter) return { skipped: true, reason: "Mobile Sasa token is not configured" } as const;
   const dateLabel = formatDateLabel(opts.date);
-  const body = buildDailyNoPluckingSms({ dateLabel, reason: opts.reason ?? "not recorded" }).body;
+  const reason = opts.reason ?? "not recorded";
   const recipients = await noPluckingRecipients(opts.farmId, opts.date);
   const workers = await Promise.all(recipients.map(async (recipient) => {
     const phone = normaliseKenyaPhone(recipient.phone);
@@ -281,7 +282,7 @@ export async function sendLiveNoPluckingSms(opts: { farmId: string; date: string
       jobKey: `${opts.farmId}:${opts.date}:live-no-plucking-worker:${recipient.workerId}`,
       type: "no-plucking-worker-live",
       to: phone,
-      body,
+      body: buildDailyWorkerNoPluckingSms({ workerName: recipient.name, dateLabel, reason }).body,
       adapter,
     });
   }));
@@ -290,7 +291,7 @@ export async function sendLiveNoPluckingSms(opts: { farmId: string; date: string
     jobKey: `${opts.farmId}:${opts.date}:live-no-plucking-owner`,
     type: "no-plucking-owner-live",
     to: ownerPhone,
-    body,
+    body: buildDailyNoPluckingSms({ dateLabel, reason }).body,
     adapter,
   });
   return { skipped: false, workers, owner } as const;

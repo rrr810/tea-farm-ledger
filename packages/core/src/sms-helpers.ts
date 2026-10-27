@@ -102,21 +102,28 @@ function kgText(kgUnits: number): string {
   return (kgUnits / 10).toFixed(1);
 }
 
-/** A concise, individual daily kg/pay notification for a consented picker. */
+/** Use the picker's first saved name for a warm, compact one-part receipt. */
+function pickerGreetingName(value: string): string {
+  return compactSmsText(value, 30).split(" ")[0] || "Picker";
+}
+
+/** A concise, personal daily kg/pay notification for a consented picker. */
 export function buildDailyWorkerSms(opts: {
+  workerName: string;
   dateLabel: string;
   kgUnits: number;
   amountKes: number;
 }): { body: string; segments: number; gsm7: boolean } {
-  const body = `Tea Ledger ${compactSmsText(opts.dateLabel, 18)}: ${kgText(opts.kgUnits)}kg, estimated pay KES ${Math.round(opts.amountKes)}.`;
+  const body = `Dear ${pickerGreetingName(opts.workerName)}, your tea record for ${compactSmsText(opts.dateLabel, 18)} is ${kgText(opts.kgUnits)}kg. Estimated pay: KES ${Math.round(opts.amountKes)}.`;
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
 
-/** Transparent status when a consented picker has no payable entry on a completed day. */
+/** Transparent personal status when a consented picker has no payable entry. */
 export function buildDailyAbsentSms(opts: {
+  workerName: string;
   dateLabel: string;
 }): { body: string; segments: number; gsm7: boolean } {
-  const body = `Tea Ledger ${compactSmsText(opts.dateLabel, 18)}: no kg or pay recorded today.`;
+  const body = `Dear ${pickerGreetingName(opts.workerName)}, your tea record for ${compactSmsText(opts.dateLabel, 18)} has no kg or pay recorded today.`;
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
 
@@ -141,13 +148,24 @@ export function buildCompactDailyOwnerSms(opts: {
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
 
-/** Shared no-plucking notification for both the owner summary and consented workers. */
+/** Compact no-plucking summary for the owner/test recipient. */
 export function buildDailyNoPluckingSms(opts: {
   dateLabel: string;
   reason: string;
 }): { body: string; segments: number; gsm7: boolean } {
   const reason = compactSmsText(opts.reason, 72) || "not recorded";
   const body = `Tea Ledger ${compactSmsText(opts.dateLabel, 18)}: no plucking today. Reason: ${reason}.`;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
+/** Personal no-plucking notice for each consented picker. */
+export function buildDailyWorkerNoPluckingSms(opts: {
+  workerName: string;
+  dateLabel: string;
+  reason: string;
+}): { body: string; segments: number; gsm7: boolean } {
+  const reason = compactSmsText(opts.reason, 72) || "not recorded";
+  const body = `Dear ${pickerGreetingName(opts.workerName)}, no plucking on ${compactSmsText(opts.dateLabel, 18)}. Reason: ${reason}.`;
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
 

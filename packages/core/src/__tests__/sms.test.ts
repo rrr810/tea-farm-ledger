@@ -8,6 +8,7 @@ import {
   buildDailyAbsentSms,
   buildCompactDailyOwnerSms,
   buildDailyNoPluckingSms,
+  buildDailyWorkerNoPluckingSms,
 } from "../sms-helpers.js";
 describe("sms", () => {
   it("counts segments", () => {
@@ -24,9 +25,9 @@ describe("sms", () => {
     const { body, segments } = buildWeeklyReceiptSms({ workerName: "Jane", tokens: { Mon: "12", Tue: "14", Wed: "0", Thu: "A", Fri: "14", Sat: "NP" }, totalKgUnits: 400, rateCentsPerKg: 900, amountKes: 360, weekLabel: "Wk43" });
     expect(segments).toBeLessThanOrEqual(2); expect(body).toContain("Wk43 Jane:");
   });
-  it("keeps the live daily worker, owner, and no-plucking templates GSM-7 and one part for the current two-worker farm", () => {
-    const worker = buildDailyWorkerSms({ dateLabel: "24 Oct", kgUnits: 450, amountKes: 405 });
-    const absent = buildDailyAbsentSms({ dateLabel: "24 Oct" });
+  it("keeps personal picker, owner, and no-plucking templates GSM-7 and one part for the current two-worker farm", () => {
+    const worker = buildDailyWorkerSms({ workerName: "Anne K", dateLabel: "24 Oct", kgUnits: 450, amountKes: 405 });
+    const absent = buildDailyAbsentSms({ workerName: "Maggie Jep", dateLabel: "24 Oct" });
     const owner = buildCompactDailyOwnerSms({
       dateLabel: "24 Oct",
       totalKgUnits: 900,
@@ -38,13 +39,15 @@ describe("sms", () => {
       ],
     });
     const noPlucking = buildDailyNoPluckingSms({ dateLabel: "24 Oct", reason: "heavy rain - no leaf" });
+    const workerNoPlucking = buildDailyWorkerNoPluckingSms({ workerName: "Maggie Jep", dateLabel: "24 Oct", reason: "heavy rain - no leaf" });
 
-    expect(worker.body).toBe("Tea Ledger 24 Oct: 45.0kg, estimated pay KES 405.");
-    expect(absent.body).toContain("no kg or pay recorded today");
+    expect(worker.body).toBe("Dear Anne, your tea record for 24 Oct is 45.0kg. Estimated pay: KES 405.");
+    expect(absent.body).toBe("Dear Maggie, your tea record for 24 Oct has no kg or pay recorded today.");
     expect(owner.body).toContain("Anne k 45.0kg/KES405");
     expect(owner.body).toContain("Maggie jep 45.0kg/KES405");
     expect(noPlucking.body).toContain("Reason: heavy rain - no leaf.");
-    for (const message of [worker, absent, owner, noPlucking]) {
+    expect(workerNoPlucking.body).toBe("Dear Maggie, no plucking on 24 Oct. Reason: heavy rain - no leaf.");
+    for (const message of [worker, absent, owner, noPlucking, workerNoPlucking]) {
       expect(message.gsm7).toBe(true);
       expect(message.segments).toBe(1);
     }
