@@ -1,0 +1,447 @@
+/* Tea Ledger supervisor — Kenyan tea-estate field register */
+:root {
+  --estate-ink: #153a2e;
+  --estate-forest: #0f3428;
+  --estate-leaf: #28745a;
+  --estate-leaf-bright: #3f8b69;
+  --estate-mist: #e8efe5;
+  --estate-cream: #fbf8ee;
+  --estate-paper: #fffdf7;
+  --estate-line: #d9d0bd;
+  --estate-copper: #bf7434;
+  --estate-copper-light: #e8b56f;
+  --estate-clay: #8d482f;
+  --estate-muted: #627267;
+  --estate-shadow: 0 18px 46px rgba(20, 52, 40, 0.10), 0 3px 10px rgba(20, 52, 40, 0.05);
+}
+
+* { box-sizing: border-box; }
+body { min-width: 320px; }
+button, input, select, textarea { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+
+.supervisor-shell {
+  min-height: 100vh !important;
+  color: var(--estate-ink) !important;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  background:
+    radial-gradient(circle at 4% 8%, rgba(106, 151, 109, 0.18), transparent 24rem),
+    radial-gradient(circle at 96% 18%, rgba(191, 116, 52, 0.13), transparent 24rem),
+    linear-gradient(132deg, #eff2e7 0%, #faf7ed 44%, #e7eee3 100%) !important;
+  position: relative;
+  overflow-x: hidden;
+}
+.supervisor-shell::before,
+.supervisor-shell::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+  opacity: .5;
+  border-radius: 999px;
+  filter: blur(.2px);
+}
+.supervisor-shell::before {
+  width: 19rem;
+  height: 19rem;
+  right: -10rem;
+  top: 12rem;
+  border: 1px solid rgba(40, 116, 90, .12);
+  box-shadow: -28px 35px 0 -1px rgba(40, 116, 90, .05), -61px 67px 0 -1px rgba(40, 116, 90, .035);
+}
+.supervisor-shell::after {
+  width: 16rem;
+  height: 16rem;
+  left: -12rem;
+  bottom: 4rem;
+  background: radial-gradient(ellipse at center, rgba(63, 139, 105, .13), transparent 67%);
+}
+
+.supervisor-topbar {
+  isolation: isolate;
+  background:
+    linear-gradient(105deg, rgba(7, 37, 29, .98), rgba(18, 71, 51, .96) 54%, rgba(45, 109, 76, .93)) !important;
+  color: #fffdf7 !important;
+  padding: calc(15px + env(safe-area-inset-top, 0px)) 16px 15px !important;
+  position: sticky !important;
+  top: 0;
+  z-index: 20 !important;
+  border-bottom: 1px solid rgba(232, 181, 111, .28);
+  box-shadow: 0 9px 25px rgba(8, 42, 32, .24) !important;
+}
+.supervisor-topbar::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: 20rem;
+  height: 20rem;
+  right: -10rem;
+  top: -15rem;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 50%;
+  box-shadow: -20px 22px 0 -1px rgba(255,255,255,.07), -43px 45px 0 -1px rgba(255,255,255,.045);
+}
+.supervisor-topbar-inner {
+  width: 100% !important;
+  max-width: 850px !important;
+  margin: 0 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+}
+.estate-brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.estate-crest {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(232, 181, 111, .78);
+  border-radius: 14px 14px 14px 5px;
+  background: linear-gradient(145deg, #f9e8c8, #d7a35d);
+  color: var(--estate-forest);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.58), 0 6px 12px rgba(0,0,0,.18);
+  overflow: hidden;
+}
+.estate-crest::before {
+  content: "";
+  position: absolute;
+  width: 23px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-left: 0;
+  border-radius: 100% 0 100% 0;
+  transform: rotate(-38deg) translate(-1px, 2px);
+}
+.estate-crest::after {
+  content: "";
+  position: absolute;
+  height: 19px;
+  border-left: 2px solid currentColor;
+  transform: rotate(-37deg) translate(-1px, 2px);
+}
+.estate-crest span { position: relative; z-index: 1; font-family: Georgia, "Times New Roman", serif; font-size: 12px; font-weight: 800; transform: translate(7px, -8px); }
+.estate-brand-copy { min-width: 0; }
+.estate-brand-name {
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif !important;
+  font-size: 19px !important;
+  letter-spacing: .015em;
+  line-height: 1 !important;
+  font-weight: 700 !important;
+}
+.estate-brand-meta { margin-top: 5px; font-size: 10px !important; letter-spacing: .045em; color: rgba(255,253,247,.74); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.connection-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin: 0 5px 1px 0; background: #7fd1a1; box-shadow: 0 0 0 3px rgba(127,209,161,.12); }
+.connection-dot.offline { background: #e8b56f; box-shadow: 0 0 0 3px rgba(232,181,111,.13); }
+.estate-farm-controls { display: flex !important; gap: 7px !important; align-items: center !important; flex-wrap: wrap !important; justify-content: flex-end !important; }
+.estate-farm-controls input {
+  height: 32px;
+  border: 1px solid rgba(255,255,255,.24) !important;
+  border-radius: 10px !important;
+  background: rgba(255,255,255,.09) !important;
+  color: #fffdf7 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+  outline: none;
+}
+.estate-farm-controls input::placeholder { color: rgba(255,253,247,.55); }
+.estate-farm-controls input:focus { border-color: var(--estate-copper-light) !important; background: rgba(255,255,255,.14) !important; box-shadow: 0 0 0 3px rgba(232,181,111,.15); }
+.estate-new-farm {
+  min-height: 32px !important;
+  padding: 7px 12px !important;
+  border: 1px solid rgba(232,181,111,.65) !important;
+  border-radius: 999px !important;
+  background: #f6e2bf !important;
+  color: #173b2d !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: .015em;
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.estate-new-farm:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(0,0,0,.16); }
+
+.sync-zone { position: relative; z-index: 1; max-width: 850px !important; margin: 0 auto !important; padding: 14px 16px 0 !important; }
+.sync-rail {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 12px;
+  min-height: 45px;
+  padding: 8px 11px 8px 14px !important;
+  background: rgba(255,253,247,.78) !important;
+  border: 1px solid rgba(217,208,189,.9) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 18px rgba(21,58,46,.045) !important;
+  backdrop-filter: blur(12px);
+}
+.sync-status { color: var(--estate-muted) !important; font-size: 12px !important; }
+.sync-status .is-pending { color: var(--estate-copper) !important; font-weight: 800 !important; }
+.sync-status .is-current { color: var(--estate-leaf) !important; font-weight: 750 !important; }
+.sync-action {
+  min-height: 29px !important;
+  padding: 6px 12px !important;
+  border: 1px solid #b7d2bd !important;
+  border-radius: 999px !important;
+  background: #e8f1e7 !important;
+  color: var(--estate-forest) !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: .015em;
+  cursor: pointer;
+}
+.sync-action.is-pending { border-color: #dfb370 !important; background: #f6e3bf !important; color: #704315 !important; }
+.sync-note { margin-top: 7px !important; border-radius: 10px !important; box-shadow: none !important; }
+.estate-toast { border-radius: 12px !important; box-shadow: 0 8px 22px rgba(21,58,46,.07); }
+
+.supervisor-main { position: relative; z-index: 1; max-width: 850px !important; margin: 0 auto !important; padding: 16px 16px 34px !important; }
+.field-day-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  margin-bottom: 22px !important;
+  padding: 20px !important;
+  border: 1px solid rgba(217,208,189,.92) !important;
+  border-radius: 22px !important;
+  background: linear-gradient(125deg, rgba(255,253,247,.98), rgba(244,247,238,.98)) !important;
+  box-shadow: var(--estate-shadow) !important;
+}
+.field-day-card::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: -30px;
+  top: -42px;
+  width: 185px;
+  height: 185px;
+  opacity: .34;
+  border: 1px solid #81a88d;
+  border-radius: 52% 48% 58% 42%;
+  transform: rotate(-26deg);
+  box-shadow: -22px 26px 0 -1px rgba(129,168,141,.27), -42px 53px 0 -1px rgba(129,168,141,.18);
+}
+.field-kicker { margin-bottom: 6px; color: var(--estate-copper); font-size: 10px; font-weight: 850; letter-spacing: .16em; text-transform: uppercase; }
+.field-day-heading { margin: 0; color: var(--estate-forest); font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif; font-size: clamp(22px, 4vw, 29px); letter-spacing: -.02em; }
+.field-day-subtitle { margin: 5px 0 15px; max-width: 28rem; color: var(--estate-muted); font-size: 12px; line-height: 1.5; }
+.field-day-top { display: flex !important; justify-content: space-between !important; align-items: flex-end !important; gap: 14px !important; flex-wrap: wrap !important; }
+.field-date-label { font-size: 10px !important; color: var(--estate-muted) !important; font-weight: 800 !important; letter-spacing: .13em !important; }
+.field-date-input {
+  display: block;
+  margin-top: 6px;
+  min-height: 46px;
+  padding: 9px 11px !important;
+  border: 1px solid #799e84 !important;
+  border-radius: 12px !important;
+  background: #f8fbf4 !important;
+  color: var(--estate-forest) !important;
+  box-shadow: inset 0 1px 0 #fff;
+}
+.field-date-input:focus { outline: 3px solid rgba(63,139,105,.18); }
+.field-date-help { margin-top: 5px; color: #718274 !important; font-size: 11px !important; }
+.no-plucking-toggle {
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+  min-height: 45px;
+  padding: 9px 12px !important;
+  border: 1px solid #c5d9c7 !important;
+  border-radius: 13px !important;
+  background: rgba(235,244,233,.78) !important;
+  color: var(--estate-forest) !important;
+}
+.no-plucking-toggle.is-active { border-color: #dbad66 !important; background: #fcf0d9 !important; color: #744313 !important; }
+.no-plucking-toggle input { accent-color: var(--estate-copper) !important; }
+.no-plucking-form { margin-top: 15px !important; padding-top: 14px; border-top: 1px dashed #d6c7ac; }
+.no-plucking-form input { border: 1px solid #d1ad78 !important; border-radius: 11px !important; background: #fffbf1 !important; }
+.no-plucking-form button { border-radius: 11px !important; }
+
+.pick-heading { display: flex !important; justify-content: space-between !important; align-items: center !important; margin-bottom: 12px !important; }
+.pick-heading h2 { margin: 0 !important; color: var(--estate-forest) !important; font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif !important; font-size: 22px !important; letter-spacing: -.01em; }
+.worker-count-chip { border: 1px solid #d7decc !important; border-radius: 999px !important; background: rgba(255,253,247,.78) !important; color: var(--estate-muted) !important; padding: 5px 10px !important; font-size: 11px !important; font-weight: 700; }
+.empty-workers { border: 1px dashed #c6b796 !important; border-radius: 20px !important; background: rgba(255,253,247,.74) !important; box-shadow: none !important; }
+.empty-workers button { background: var(--estate-leaf) !important; border-radius: 999px !important; }
+.no-plucking-banner { border: 1px solid #e3bd7f !important; border-radius: 13px !important; background: #fff7e7 !important; color: #714415 !important; }
+
+.worker-row {
+  position: relative;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  margin-bottom: 11px !important;
+  padding: 14px !important;
+  border: 1px solid rgba(217,208,189,.85) !important;
+  border-radius: 18px !important;
+  background: rgba(255,253,247,.93) !important;
+  box-shadow: 0 6px 16px rgba(21,58,46,.045) !important;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.worker-row:not(.is-locked):hover { transform: translateY(-1px); border-color: #a8c3ab !important; box-shadow: 0 10px 22px rgba(21,58,46,.09) !important; }
+.worker-row.is-entered { border-color: var(--estate-leaf) !important; box-shadow: 0 10px 22px rgba(40,116,90,.12) !important; }
+.worker-row.is-absent { background: #fdf8f4 !important; }
+.worker-avatar { width: 45px !important; height: 45px !important; flex: 0 0 45px; border: 1px solid #c5d4bf; border-radius: 15px 15px 15px 5px !important; background: #e5efe2 !important; color: var(--estate-leaf) !important; font-family: Georgia, "Times New Roman", serif; font-size: 14px !important; }
+.worker-row.is-entered .worker-avatar { border-color: var(--estate-leaf); background: var(--estate-leaf) !important; color: #fffdf7 !important; }
+.worker-info-name { font-size: 15px !important; color: var(--estate-ink); }
+.worker-info-meta { color: #78867a !important; }
+.absent-toggle { background: #f8f4ea !important; border-color: #dfd1b6 !important; border-radius: 10px !important; }
+.absent-toggle.is-checked { background: #fbe9e4 !important; border-color: #e3b3a6 !important; color: var(--estate-clay) !important; }
+.kg-input {
+  width: 82px !important;
+  min-height: 46px;
+  border: 1px solid #a8c1aa !important;
+  border-radius: 13px !important;
+  background: #f9fcf7 !important;
+  color: var(--estate-forest) !important;
+  box-shadow: inset 0 1px 2px rgba(21,58,46,.04);
+}
+.worker-row.is-entered .kg-input { border-color: var(--estate-leaf) !important; background: #eff7ec !important; }
+.kg-input:focus { border-color: var(--estate-leaf) !important; box-shadow: 0 0 0 3px rgba(63,139,105,.16) !important; }
+.worker-pay { color: var(--estate-leaf) !important; font-size: 12px !important; }
+
+.daily-total {
+  position: relative;
+  overflow: hidden;
+  margin-top: 16px !important;
+  padding: 16px 17px !important;
+  border: 1px solid rgba(232,181,111,.48);
+  border-radius: 19px !important;
+  background: linear-gradient(116deg, #133e30, #1e604a) !important;
+  box-shadow: 0 14px 25px rgba(17,63,47,.18) !important;
+}
+.daily-total::after { content: ""; position: absolute; right: -13px; bottom: -43px; width: 155px; height: 155px; border: 1px solid rgba(255,255,255,.17); border-radius: 50%; box-shadow: -18px -14px 0 -1px rgba(255,255,255,.07); }
+.daily-total > * { position: relative; z-index: 1; }
+.daily-actions { display: flex !important; gap: 10px !important; margin-top: 16px !important; }
+.done-action {
+  min-height: 55px !important;
+  border: 1px solid #d8a661 !important;
+  border-radius: 14px !important;
+  background: linear-gradient(135deg, #d48b42, #efbf74) !important;
+  color: #2e2418 !important;
+  box-shadow: 0 10px 18px rgba(191,116,52,.22) !important;
+  letter-spacing: .01em;
+}
+.done-action.is-complete { border-color: #afd0b6 !important; background: #edf5ea !important; color: var(--estate-forest) !important; box-shadow: none !important; }
+.final-action { min-height: 55px !important; border-radius: 14px !important; }
+.final-action.is-available { border-color: #d8a661 !important; background: #fffdf7 !important; color: #764819 !important; }
+.action-footnote { color: #778277 !important; }
+.saturday-note { color: #9a7041 !important; }
+
+.worker-manager {
+  margin-top: 27px !important;
+  overflow: hidden;
+  border: 1px solid rgba(217,208,189,.9) !important;
+  border-radius: 18px !important;
+  background: rgba(255,253,247,.88) !important;
+  box-shadow: 0 10px 26px rgba(21,58,46,.055);
+}
+.worker-manager-toggle { background: transparent !important; color: var(--estate-forest) !important; }
+.worker-manager-body { border-top: 1px solid #ece5d5 !important; background: linear-gradient(180deg, #f4f6ef, #f9f6ed) !important; }
+.add-worker-trigger { border-color: var(--estate-leaf) !important; border-radius: 13px !important; background: rgba(255,253,247,.84) !important; color: var(--estate-leaf) !important; }
+.add-worker-form, .worker-management-card { border: 1px solid #ded3bd !important; border-radius: 14px !important; background: #fffdf7 !important; }
+.add-worker-form input, .worker-management-card input { border-color: #d1c7b2 !important; background: #fffefa !important; }
+.worker-select-btn { border-radius: 999px !important; }
+.reset-local-button { color: #8e8372 !important; }
+
+@media (max-width: 650px) {
+  .supervisor-topbar-inner { align-items: flex-start !important; flex-direction: column; gap: 12px !important; }
+  .estate-farm-controls { width: 100%; justify-content: stretch !important; }
+  .estate-farm-controls input[aria-label="Farm label"] { flex: 1 1 156px; width: auto !important; }
+  .estate-farm-controls input[aria-label="Farm ID"] { flex: 1 1 92px; width: auto !important; }
+  .estate-new-farm { flex: 0 0 auto; }
+  .sync-zone { padding: 11px 12px 0 !important; }
+  .supervisor-main { padding: 14px 12px 30px !important; }
+  .field-day-card { padding: 17px !important; }
+  .field-day-top { align-items: stretch !important; }
+  .no-plucking-toggle { width: 100%; }
+  .worker-row { gap: 10px !important; padding: 12px !important; flex-wrap: wrap; }
+  .worker-info { min-width: 0; flex: 1 1 calc(100% - 62px) !important; }
+  .worker-inputs { width: 100%; justify-content: flex-end; padding-left: 55px; }
+  .daily-actions { flex-direction: column; }
+  .daily-actions button { width: 100%; }
+}
+
+@media (max-width: 400px) {
+  .estate-farm-controls input[aria-label="Farm label"] { flex-basis: 100%; }
+  .estate-farm-controls input[aria-label="Farm ID"] { flex: 1 1 42%; }
+  .worker-inputs { padding-left: 0; }
+  .kg-input { width: 73px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+}
+
+/* Component detail styles kept near the estate palette. */
+.section-eyebrow { margin-bottom: 3px; color: var(--estate-copper); font-size: 10px; font-weight: 850; letter-spacing: .15em; text-transform: uppercase; }
+.notification-preview { margin-top: 7px; color: #896335; font-size: 11px; }
+.no-plucking-confirm { width: 100%; min-height: 43px; margin-top: 11px; border: 1px solid #d4a35f; border-radius: 11px; background: linear-gradient(135deg, #d58d46, #edbe76); color: #312415; font-weight: 850; cursor: pointer; }
+.no-plucking-confirm:disabled { cursor: default; opacity: .6; }
+.empty-workers { padding: 30px 22px !important; text-align: center; }
+.empty-icon { width: 42px; height: 42px; margin: 0 auto 10px; display: grid; place-items: center; border: 1px solid #c6d9c6; border-radius: 14px 14px 14px 5px; background: #e9f2e5; color: var(--estate-leaf); }
+.empty-title { color: var(--estate-forest); font-family: Georgia, "Times New Roman", serif; font-size: 20px; font-weight: 700; }
+.empty-copy { margin-top: 6px; color: var(--estate-muted); font-size: 13px; }
+.empty-workers button { min-height: 41px; margin-top: 15px; padding: 9px 16px; border: 1px solid #1c6348; color: #fffdf7; font-weight: 800; cursor: pointer; }
+.worker-info { flex: 1; min-width: 0; }
+.worker-inputs { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.worker-info-name { overflow: hidden; font-weight: 800; white-space: nowrap; text-overflow: ellipsis; }
+.worker-info-meta { margin-top: 3px; overflow: hidden; font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+.absent-toggle { display: flex; align-items: center; gap: 4px; padding: 6px 8px; font-size: 11px; cursor: pointer; }
+.absent-toggle input { width: 14px; height: 14px; accent-color: var(--estate-clay); }
+.kg-input { padding: 9px 8px; font-size: 18px; font-weight: 850; text-align: center; outline: none; }
+.kg-input:disabled { opacity: .6; cursor: not-allowed; }
+.worker-pay { min-width: 62px; text-align: right; font-weight: 800; }
+.total-label { color: rgba(255,253,247,.7); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.total-number { margin-top: 3px; color: #fffdf7; font-family: Georgia, "Times New Roman", serif; font-size: 25px; font-weight: 700; }
+.total-number span { font-family: inherit; font-size: 13px; font-weight: 600; opacity: .8; }
+.total-number i { padding: 0 3px; font-style: normal; opacity: .6; }
+.total-pay { color: rgba(255,253,247,.7); font-size: 11px; text-align: right; }
+.total-pay strong { display: block; margin-top: 4px; color: #fffdf7; font-size: 18px; }
+.action-footnote, .saturday-note { padding: 0 8px; font-size: 11px; line-height: 1.45; text-align: center; }
+.action-footnote { margin-top: 9px; }
+.saturday-note { margin-top: 4px; }
+.worker-manager-toggle { width: 100%; min-height: 54px; padding: 13px 16px; display: flex; justify-content: space-between; align-items: center; border: 0; cursor: pointer; text-align: left; }
+.worker-manager-title { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 800; }
+.worker-total { padding: 3px 8px; border-radius: 999px; background: #e4efdf; color: var(--estate-leaf); font-size: 10px; }
+.worker-manager-state { color: #788479; font-size: 11px; font-weight: 700; }
+.worker-manager-body { padding: 15px; }
+.add-worker-trigger { width: 100%; min-height: 47px; border-style: dashed !important; border-width: 1px !important; font-weight: 800; cursor: pointer; }
+.add-worker-form { padding: 15px; }
+.form-title { margin-bottom: 11px; color: var(--estate-forest); font-size: 13px; font-weight: 800; }
+.form-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.form-row input { flex: 1 1 150px; min-height: 41px; padding: 10px 11px; outline: none; }
+.consent-line { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: #53645a; font-size: 12px; cursor: pointer; }
+.consent-line input { width: 17px; height: 17px; accent-color: var(--estate-leaf); }
+.form-actions { display: flex; gap: 8px; margin-top: 12px; }
+.form-actions button { min-height: 40px; padding: 9px 12px; border-radius: 10px; font-weight: 800; cursor: pointer; }
+.add-worker-submit, .rehire-worker { flex: 1; border: 1px solid #1d6449; background: var(--estate-leaf); color: #fffdf7; }
+.cancel-worker { border: 1px solid #d7cdb9; background: #fffdf7; color: #59665c; }
+.worker-management-list { margin-top: 16px; }
+.empty-management { padding: 12px; color: #7c897d; font-size: 13px; text-align: center; }
+.worker-management-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; padding: 11px 12px; }
+.worker-management-card.is-selected { border-color: var(--estate-leaf) !important; box-shadow: 0 5px 12px rgba(40,116,90,.08); }
+.management-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 800; }
+.management-name small { display: block; margin-top: 3px; color: #78867a; font-size: 11px; font-weight: 500; }
+.employment-status { display: inline-block; margin-left: 5px; padding: 2px 6px; border-radius: 999px; font-size: 9px; font-weight: 800; text-transform: uppercase; vertical-align: middle; }
+.employment-status.active { background: #e7f4e6; color: #3a7549; border: 1px solid #b9dbbb; }
+.employment-status.inactive { background: #f2eee6; color: #7b756b; border: 1px solid #ded5c8; }
+.worker-select-btn { min-height: 31px; padding: 6px 10px; border: 1px solid #85ab90; background: #fffdf7; color: var(--estate-leaf); font-size: 11px; font-weight: 800; cursor: pointer; }
+.worker-management-card.is-selected .worker-select-btn { background: var(--estate-leaf); color: #fffdf7; }
+.worker-detail-card { display: block; margin-top: 10px; padding: 14px; }
+.end-worker { flex: 1; border: 1px solid #e0aaa0; background: #fff0ed; color: #a34e38; }
+.reset-local { padding: 17px 0 5px; text-align: center; }
+.reset-local-button { min-height: auto; padding: 4px; border: 0; background: transparent; font-size: 11px; text-decoration: underline; cursor: pointer; }
+@media (max-width: 650px) { .total-pay { text-align: left; margin-top: 10px; } .daily-total { display: block !important; } .worker-management-card { align-items: flex-start; } }
+
+/* Reset the legacy document defaults inside the new mobile field layout. */
+.supervisor-shell button { min-width: 0 !important; }
+.estate-farm-controls input[aria-label="Farm label"] { width: 166px !important; font-size: 11px !important; padding: 6px 8px !important; }
+.estate-farm-controls input[aria-label="Farm ID"] { width: 112px !important; font-size: 11px !important; padding: 6px 8px !important; }
+.field-date-input { width: 176px !important; font-size: 15px !important; }
+.no-plucking-form input { width: 100% !important; min-height: 43px; padding: 10px 12px !important; font-size: 14px !important; }
+.daily-total { display: flex !important; align-items: center !important; justify-content: space-between !important; gap: 14px; }
+.daily-actions button { flex: 1; }
+@media (max-width: 650px) {
+  .estate-farm-controls input[aria-label="Farm label"] { width: auto !important; }
+  .estate-farm-controls input[aria-label="Farm ID"] { width: auto !important; }
+}
+.worker-manager-toggle { font-size: 14px !important; }
+.no-plucking-confirm, .empty-workers button, .form-actions button { font-size: 13px !important; }
