@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMobileSasaAdapter } from "../packages/sms/src/mobilesasa.js";
+import {
+  createMobileSasaAdapter,
+  lookupMobileSasaDeliveryReport,
+  mobileSasaDeliveryStatus,
+} from "../packages/sms/src/mobilesasa.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -77,5 +81,35 @@ describe("Mobile Sasa v2 daily SMS adapter", () => {
     await expect(adapter.send({ to: "+254740793959", body: "Rain 😀", farmId: "farm-1", type: "daily-worker-live", trackingId: "id" })).rejects.toThrow(/GSM-7/);
     await expect(adapter.send({ to: "+254740793959", body: "Rain", farmId: "farm-1", type: "daily-worker-live" })).rejects.toThrow(/trackingId/);
     expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+describe("Mobile Sasa delivery-report lookup", () => {
+  it("uses the read-only DLR endpoint and maps a real Delivered response", async () => {
+    const fn = stubFetch(200, { status: true, responseCode: "0200", message: "Delivered" });
+    const report = await lookupMobileSasaDeliveryReport({
+      token: "mbs_test_token",
+      messageId: "provider-message-1",
+    });
+
+    const [url, init] = fn.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.mobilesasa.com/v1/dlr");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer mbs_test_token");
+    expect(JSON.parse(init.body as string)).toEqual({ messageId: "provider-message-1" });
+    expect(report).toEqual({
+      found: true,
+      status: "delivered",
+      providerMessage: "Delivered",
+      responseCode: "0200",
+    });
+  });
+
+  it("never converts unavailable or unknown provider replies into a delivery claim", async () => {
+    stubFetch(404, { status: false, responseCode: "0404", message: "Not found" });
+    const report = await lookupMobileSasaDeliveryReport({ token: "mbs_test_token", messageId: "missing" });
+    expect(report).toMatchObject({ found: false, status: "queued", providerMessage: "Not found" });
+    expect(mobileSasaDeliveryStatus("Unreachable")).toBe("failed");
+    expect(mobileSasaDeliveryStatus("Sent")).toBe("sent");
+    expect(mobileSasaDeliveryStatus("Accepted")).toBe("queued");
   });
 });

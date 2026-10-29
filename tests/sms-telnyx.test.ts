@@ -74,7 +74,7 @@ describe("telnyx adapter", () => {
 describe("delivery reports (matched by provider_id)", () => {
   it("updates status on the stored SMS and no-ops for unknown ids", async () => {
     const { createTestDb, runMigrations } = await import("@tea-ledger/database");
-    const { applyDeliveryReport } = await import("../packages/sms/src/scheduler.js");
+    const { applyDeliveryReport, applyMobileSasaDeliveryReport } = await import("../packages/sms/src/scheduler.js");
     const db = await createTestDb();
     await runMigrations(db);
     await db.query("INSERT INTO farms (farm_id, name) VALUES ('00000000-0000-4000-a000-0000000000cc','DLR Farm')");
@@ -86,6 +86,17 @@ describe("delivery reports (matched by provider_id)", () => {
     const row = (await db.query("SELECT status FROM sms_messages WHERE provider_id='telnyx-msg-1'")).rows[0] as { status: string };
     expect(row.status).toBe("delivered");
     expect(await applyDeliveryReport("nope", "failed", db as never)).toBe(0);
+
+    // Mobile Sasa callback may join through Tea Ledger's v2 trackingId. A late
+    // Sent callback must not overwrite a final Delivered provider report.
+    await db.query(
+      "INSERT INTO sms_messages (id, farm_id, type, to_phone, body, segments, status, provider_id, job_key) VALUES ('00000000-0000-4000-a000-0000000000de','00000000-0000-4000-a000-0000000000cc','daily-worker-live','+254712345679','hello',1,'queued','mobilesasa-msg-1','k2')",
+    );
+    expect(await applyMobileSasaDeliveryReport({ trackingId: "00000000-0000-4000-a000-0000000000de", status: "sent" }, db as never)).toBe(1);
+    expect(await applyMobileSasaDeliveryReport({ providerId: "mobilesasa-msg-1", status: "delivered" }, db as never)).toBe(1);
+    expect(await applyMobileSasaDeliveryReport({ providerId: "mobilesasa-msg-1", status: "sent" }, db as never)).toBe(0);
+    const mobileRow = (await db.query("SELECT status FROM sms_messages WHERE provider_id='mobilesasa-msg-1'")).rows[0] as { status: string };
+    expect(mobileRow.status).toBe("delivered");
     if (db?.end) await db.end();
   });
 });

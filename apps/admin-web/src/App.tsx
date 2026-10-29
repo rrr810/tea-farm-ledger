@@ -268,6 +268,7 @@ export default function App() {
   const [conflicts, setConflicts] = useState<unknown[]>([]);
   const [corrections, setCorrections] = useState<unknown[]>([]);
   const [smsLog, setSmsLog] = useState<unknown[]>([]);
+  const [smsRefreshing, setSmsRefreshing] = useState(false);
   const [monthly, setMonthly] = useState<unknown[]>([]);
   const [hardest, setHardest] = useState<unknown[]>([]);
   const [quarter, setQuarter] = useState(() => quarterLabel());
@@ -386,6 +387,36 @@ export default function App() {
       setPayrollSheet(res);
     } catch (e) {
       toast(String(e));
+    }
+  }
+
+  async function refreshSmsDelivery() {
+    if (!currentFarm || smsRefreshing) return;
+    setSmsRefreshing(true);
+    try {
+      const result = (await api.refreshSmsDelivery(currentFarm)) as {
+        checked: number;
+        updated: number;
+        delivered: number;
+        sent: number;
+        failed: number;
+        queued: number;
+        unavailable?: boolean;
+        message?: string;
+      };
+      const latest = (await api.smsLog(currentFarm)) as { messages: unknown[] };
+      setSmsLog(latest.messages ?? []);
+      if (result.unavailable) {
+        toast(result.message ?? "Mobile Sasa delivery lookup is not configured.");
+      } else {
+        toast(
+          `Delivery checked: ${result.checked}; delivered ${result.delivered}, sent ${result.sent}, failed ${result.failed}, still pending ${result.queued}.`,
+        );
+      }
+    } catch (e) {
+      toast(String(e));
+    } finally {
+      setSmsRefreshing(false);
     }
   }
 
@@ -724,7 +755,7 @@ export default function App() {
                   download
                   style={{ fontSize: 13 }}
                 >
-                  Download CSV
+                  Download payroll CSV
                 </a>
               )}
               {payrollSheet && (
@@ -732,9 +763,28 @@ export default function App() {
                   href={`/api/farms/${currentFarm}/payroll/${weekStart}?format=html`}
                   target="_blank"
                   rel="noreferrer"
+                  style={{ fontSize: 13, fontWeight: 700 }}
+                >
+                  Print payroll / Save PDF
+                </a>
+              )}
+              {payrollSheet && (
+                <a
+                  href={`/api/farms/${currentFarm}/kg-register/${weekStart}?format=csv`}
+                  download
                   style={{ fontSize: 13 }}
                 >
-                  Printable HTML
+                  Download kg register CSV
+                </a>
+              )}
+              {payrollSheet && (
+                <a
+                  href={`/api/farms/${currentFarm}/kg-register/${weekStart}?format=html`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: 13, fontWeight: 700 }}
+                >
+                  Print weekly kg register / Save PDF
                 </a>
               )}
             </div>
@@ -926,7 +976,49 @@ export default function App() {
 
         {tab === "sms" && (
           <div className="card">
-            <h3>SMS Log — delivery status & costs</h3>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <h3 style={{ marginBottom: 4 }}>SMS Log — truthful delivery status</h3>
+                <p style={{ margin: 0, fontSize: 12, color: "#4A4A42", maxWidth: 690 }}>
+                  <strong>Queued</strong> means Mobile Sasa accepted the message
+                  request. It is not handset delivery confirmation. Refresh asks
+                  Mobile Sasa for delivery reports only — it never sends, retries,
+                  or consumes an SMS unit.
+                </p>
+              </div>
+              <button
+                className="primary"
+                onClick={refreshSmsDelivery}
+                disabled={smsRefreshing || !currentFarm}
+                title="Read current delivery reports from Mobile Sasa; no SMS will be sent"
+              >
+                {smsRefreshing ? "Checking delivery…" : "Refresh delivery status"}
+              </button>
+            </div>
+            <div
+              style={{
+                margin: "12px 0",
+                padding: "9px 11px",
+                borderRadius: 8,
+                background: "#F4F7F1",
+                border: "1px solid #D5E1D2",
+                color: "#355344",
+                fontSize: 12,
+              }}
+            >
+              <strong>Status key:</strong> Delivered = Mobile Sasa has a handset
+              confirmation; Sent = carrier accepted, still not handset-confirmed;
+              Failed = Mobile Sasa reported a terminal failure; Queued = accepted
+              and still waiting for a provider report.
+            </div>
             <table>
               <thead>
                 <tr>
@@ -934,7 +1026,7 @@ export default function App() {
                   <th>To</th>
                   <th>Body</th>
                   <th>Segs</th>
-                  <th>Status</th>
+                  <th>Truthful status</th>
                 </tr>
               </thead>
               <tbody>
@@ -944,26 +1036,54 @@ export default function App() {
                     to_phone: string;
                     body: string;
                     segments: number;
-                    status: string;
+                    status: "queued" | "sent" | "delivered" | "failed" | string;
                   }>
-                ).map((m, i) => (
-                  <tr key={i}>
-                    <td>{m.type}</td>
-                    <td>{m.to_phone}</td>
-                    <td
-                      style={{
-                        maxWidth: 300,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        fontSize: 12,
-                      }}
-                    >
-                      {m.body.slice(0, 80)}
-                    </td>
-                    <td>{m.segments}</td>
-                    <td>{m.status}</td>
-                  </tr>
-                ))}
+                ).map((m, i) => {
+                  const display =
+                    m.status === "delivered"
+                      ? "Delivered · handset confirmed"
+                      : m.status === "sent"
+                        ? "Sent · carrier accepted"
+                        : m.status === "failed"
+                          ? "Failed · provider reported"
+                          : "Queued · accepted, awaiting report";
+                  const color =
+                    m.status === "delivered"
+                      ? "#1F6A3C"
+                      : m.status === "failed"
+                        ? "#A63D28"
+                        : m.status === "sent"
+                          ? "#7B5B1A"
+                          : "#5F625B";
+                  return (
+                    <tr key={i}>
+                      <td>{m.type}</td>
+                      <td>{m.to_phone}</td>
+                      <td
+                        style={{
+                          maxWidth: 300,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          fontSize: 12,
+                        }}
+                      >
+                        {m.body.slice(0, 80)}
+                      </td>
+                      <td>{m.segments}</td>
+                      <td>
+                        <span
+                          style={{
+                            color,
+                            fontWeight: 700,
+                            fontSize: 12,
+                          }}
+                        >
+                          {display}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {smsLog.length === 0 && (
                   <tr>
                     <td
@@ -976,10 +1096,11 @@ export default function App() {
                 )}
               </tbody>
             </table>
-            <p style={{ fontSize: 12, color: "#4A4A42" }}>
-              Segments & cost_estimate_cents logged per farm per month. GSM-7
-              only (no emojis). Provider mock in preview, AT sandbox/live via
-              env.
+            <p style={{ fontSize: 12, color: "#4A4A42", marginBottom: 0 }}>
+              Delivery reports are reconciled read-only against the provider.
+              Real-time callback support is securely disabled until its separate
+              Mobile Sasa webhook secret is configured; it will never guess a
+              delivery outcome.
             </p>
           </div>
         )}

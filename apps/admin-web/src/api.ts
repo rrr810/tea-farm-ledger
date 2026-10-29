@@ -26,6 +26,7 @@ export const api = {
   payroll: (fid: string, weekStart: string) => req(`/api/farms/${fid}/payroll/${weekStart}`),
   payrollWeeks: (fid: string) => req(`/api/farms/${fid}/payroll`),
   payrollCsv: (fid: string, weekStart: string) => fetch(`/api/farms/${fid}/payroll/${weekStart}?format=csv`, { headers: { Authorization: `Bearer ${token() ?? ""}` } }).then(r => r.text()),
+  refreshSmsDelivery: (fid: string) => req(`/api/farms/${fid}/sms/refresh-delivery`, { method: "POST", body: JSON.stringify({}) }),
   conflicts: (fid: string) => req(`/api/farms/${fid}/conflicts`),
   corrections: (fid: string) => req(`/api/farms/${fid}/correction-requests`),
   smsLog: (fid: string) => req(`/api/sms-log?farm_id=${fid}&limit=100`),

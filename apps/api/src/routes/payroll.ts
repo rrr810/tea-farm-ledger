@@ -1,8 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { getDb } from "@tea-ledger/database";
 import { getPayrollData, createAdjustment, savePayrollLines } from "@tea-ledger/database";
-import { computePayrollSheet, payrollToCsv, payrollToPrintableHtml } from "@tea-ledger/core";
-import { getWeekStartMonday, getWeekEndSaturday } from "@tea-ledger/core";
+import {
+  computePayrollSheet,
+  computeWeeklyKgRegister,
+  payrollToCsv,
+  payrollToPrintableHtml,
+  weeklyKgRegisterToCsv,
+  weeklyKgRegisterToPrintableHtml,
+} from "@tea-ledger/core";
+import { getWeekEndSaturday } from "@tea-ledger/core";
 
 export async function payrollRoutes(app: FastifyInstance) {
   // GET /api/farms/:farmId/payroll/:weekStart?format=csv|html|json (query format overrides Accept)
@@ -80,6 +87,54 @@ export async function payrollRoutes(app: FastifyInstance) {
     }
 
     return { sheet, farm_id: farmId, week_start: weekStart, week_end: weekEnd };
+  });
+
+  // GET /api/farms/:farmId/kg-register/:weekStart?format=csv|html|json
+  // This is intentionally read-only: it renders the append-only leaf record
+  // already used by payroll and does not lock, alter, or resolve any entry.
+  app.get("/api/farms/:farmId/kg-register/:weekStart", async (req, reply) => {
+    const { farmId, weekStart } = req.params as { farmId: string; weekStart: string };
+    const qs = req.query as { format?: string };
+    const format =
+      qs.format ??
+      (req.headers.accept?.includes("text/csv")
+        ? "csv"
+        : req.headers.accept?.includes("text/html")
+          ? "html"
+          : "json");
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
+      return reply.status(400).send({ error: "weekStart must be YYYY-MM-DD (Monday)" });
+    }
+
+    const weekEnd = getWeekEndSaturday(weekStart);
+    const db = await getDb();
+    const data = await getPayrollData({ farmId, weekStart, weekEnd, dbClient: db as never });
+    const register = computeWeeklyKgRegister({
+      farmId,
+      weekStart,
+      weekEnd,
+      status: data.status,
+      lockedAt: data.lockedAt,
+      workers: data.workers,
+      plucksByWorker: data.plucksByWorker,
+      pluckingDays: data.pluckingDays,
+    });
+
+    if (format === "csv") {
+      reply.header("Content-Type", "text/csv; charset=utf-8");
+      reply.header("Content-Disposition", `attachment; filename="weekly-kg-register-${farmId}-${weekStart}.csv"`);
+      return reply.send(weeklyKgRegisterToCsv(register));
+    }
+
+    if (format === "html") {
+      const farmRes = await db.query("SELECT name FROM farms WHERE farm_id=$1", [farmId]);
+      const farmName = (farmRes.rows as Array<{ name: string }>)[0]?.name ?? farmId.slice(0, 8);
+      reply.header("Content-Type", "text/html; charset=utf-8");
+      return reply.send(weeklyKgRegisterToPrintableHtml(register, farmName));
+    }
+
+    return { register, farm_id: farmId, week_start: weekStart, week_end: weekEnd };
   });
 
   // GET /api/farms/:farmId/payroll - list pay weeks

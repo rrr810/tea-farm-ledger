@@ -9,7 +9,11 @@ import {
   calculateWorkerWeekPayKes,
   countSegments,
 } from "@tea-ledger/core";
-import { createMobileSasaAdapter, MOBILE_SASA_PART_COST_CENTS } from "./mobilesasa.js";
+import {
+  createMobileSasaAdapter,
+  lookupMobileSasaDeliveryReport,
+  MOBILE_SASA_PART_COST_CENTS,
+} from "./mobilesasa.js";
 import type { SmsAdapter } from "./types.js";
 
 /**
@@ -112,6 +116,97 @@ async function persistOnce(opts: {
     console.error("[live-daily-sms] send failed", error instanceof Error ? error.message : String(error));
     return { sent: false, skipped: false, failed: true, id };
   }
+}
+
+/**
+ * Reconciles only already-accepted live daily messages using Mobile Sasa's
+ * read-only DLR lookup. It deliberately does not call the sender, create a new
+ * idempotency row, resend a message, or spend a unit.
+ */
+export async function refreshLiveDailyDeliveryReports(opts: {
+  farmId: string;
+  limit?: number;
+  dbClient?: Awaited<ReturnType<typeof getDb>>;
+  lookup?: typeof lookupMobileSasaDeliveryReport;
+}): Promise<{
+  checked: number;
+  updated: number;
+  delivered: number;
+  sent: number;
+  failed: number;
+  queued: number;
+  unavailable?: boolean;
+  message?: string;
+}> {
+  const token = process.env.MOBILESASA_TOKEN?.trim();
+  if (!token) {
+    return {
+      checked: 0,
+      updated: 0,
+      delivered: 0,
+      sent: 0,
+      failed: 0,
+      queued: 0,
+      unavailable: true,
+      message: "Mobile Sasa delivery lookup is not configured.",
+    };
+  }
+
+  const db = opts.dbClient ?? (await getDb());
+  const limit = Math.max(1, Math.min(Math.trunc(opts.limit ?? 50), 100));
+  const pending = await db.query(
+    `SELECT id, provider_id, status
+       FROM sms_messages
+      WHERE farm_id=$1
+        AND provider_id IS NOT NULL
+        AND type IN ('daily-worker-live','daily-owner-live','no-plucking-worker-live','no-plucking-owner-live')
+        AND status IN ('queued','sent')
+      ORDER BY created_at ASC
+      LIMIT $2`,
+    [opts.farmId, limit],
+  );
+  const lookup = opts.lookup ?? lookupMobileSasaDeliveryReport;
+  let updated = 0;
+  let delivered = 0;
+  let sent = 0;
+  let failed = 0;
+  let queued = 0;
+
+  for (const row of pending.rows as Array<{ id: string; provider_id: string; status: "queued" | "sent" }>) {
+    try {
+      const report = await lookup({ token, messageId: row.provider_id });
+      if (!report.found) {
+        // The provider did not offer a lifecycle outcome. Leave the audit row
+        // exactly as it was; unknown is never rewritten as a failure.
+        queued++;
+        continue;
+      }
+      if (report.status === "delivered") delivered++;
+      else if (report.status === "sent") sent++;
+      else if (report.status === "failed") failed++;
+      else queued++;
+
+      const result = await db.query(
+        `UPDATE sms_messages
+            SET status=$1
+          WHERE id=$2
+            AND status <> $1
+            AND (
+              status='queued'
+              OR (status='sent' AND $1 IN ('sent','delivered','failed'))
+            )`,
+        [report.status, row.id],
+      );
+      updated += result.rowCount ?? 0;
+    } catch (error) {
+      // A lookup network/provider error is not evidence of failed handset
+      // delivery. Keep the stored state and make the row eligible next time.
+      queued++;
+      console.error("[live-daily-sms] delivery lookup failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return { checked: pending.rows.length, updated, delivered, sent, failed, queued };
 }
 
 async function effectiveRateCentsPerKg(farmId: string, date: string): Promise<number> {

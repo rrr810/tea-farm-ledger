@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeDb, getDb, runMigrations } from "@tea-ledger/database";
-import { sendLiveDailySms, sendLiveNoPluckingSms } from "../packages/sms/src/live-daily.js";
+import {
+  refreshLiveDailyDeliveryReports,
+  sendLiveDailySms,
+  sendLiveNoPluckingSms,
+} from "../packages/sms/src/live-daily.js";
 
 const farmId = "00000000-0000-4000-a000-000000000811";
 const workerA = "00000000-0000-4000-a000-000000000812";
@@ -108,6 +112,33 @@ describe("live daily SMS", () => {
     expect(payloads.find((payload) => payload.phone === "+254740793959").message).toContain("no plucking today");
     expect(payloads.every((payload) => payload.message.length <= 160)).toBe(true);
     expect(payloads.map((payload) => payload.phone)).toContain("+254740793959");
+  });
+
+  it("reconciles existing accepted messages through injected read-only DLR lookup without sending", async () => {
+    const db = await getDb();
+    const pending = await db.query(
+      "SELECT id, provider_id FROM sms_messages WHERE farm_id=$1 AND provider_id IS NOT NULL AND status='queued' ORDER BY created_at ASC",
+      [farmId],
+    );
+    const firstProviderId = (pending.rows as Array<{ provider_id: string }>)[0]!.provider_id;
+    const noSendFetch = vi.fn();
+    vi.stubGlobal("fetch", noSendFetch);
+    const lookup = vi.fn(async ({ messageId }: { messageId: string }) => ({
+      found: true,
+      status: messageId === firstProviderId ? ("delivered" as const) : ("queued" as const),
+      providerMessage: messageId === firstProviderId ? "Delivered" : "Queued",
+      responseCode: "0200",
+    }));
+
+    const result = await refreshLiveDailyDeliveryReports({ farmId, dbClient: db as never, lookup });
+
+    expect(result.checked).toBe(pending.rows.length);
+    expect(result.delivered).toBe(1);
+    expect(result.updated).toBe(1);
+    expect(lookup).toHaveBeenCalledTimes(pending.rows.length);
+    expect(noSendFetch).not.toHaveBeenCalled();
+    const updated = await db.query("SELECT status FROM sms_messages WHERE provider_id=$1", [firstProviderId]);
+    expect((updated.rows as Array<{ status: string }>)[0]?.status).toBe("delivered");
   });
 
   it("does not create failed idempotency rows for a partly configured deployment", async () => {

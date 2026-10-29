@@ -44,9 +44,8 @@ export async function updateFarmSettings(farmId: string, patch: Partial<FarmSett
 
 /**
  * Apply a provider delivery-report callback to a stored SMS (matched by provider_id).
- * Telnyx posts message lifecycle events (message.sent / message.delivered /
- * message.finalized); the terminal status rides on data.to[].status. We map those
- * onto our sms_messages.status values. Unknown provider ids no-op (idempotent).
+ * Terminal statuses are monotonic: a late/duplicate interim callback can never
+ * turn a delivered or failed audit row back into a less truthful state.
  */
 export async function applyDeliveryReport(
   providerId: string,
@@ -54,7 +53,47 @@ export async function applyDeliveryReport(
   dbClient?: Awaited<ReturnType<typeof getDb>>,
 ): Promise<number> {
   const db = dbClient ?? (await getDb());
-  const res = await db.query("UPDATE sms_messages SET status=$1 WHERE provider_id=$2", [status, providerId]);
+  const res = await db.query(
+    `UPDATE sms_messages
+       SET status=$1
+     WHERE provider_id=$2
+       AND (
+         status='queued'
+         OR (status='sent' AND $1 IN ('sent','delivered','failed'))
+       )`,
+    [status, providerId],
+  );
+  return res.rowCount ?? 0;
+}
+
+/**
+ * Mobile Sasa returns both its message reference and the v2 trackingId in a
+ * webhook. We accept either join key, but retain the same monotonic terminal
+ * status guard as the generic delivery-report path.
+ */
+export async function applyMobileSasaDeliveryReport(
+  opts: {
+    providerId?: string | null;
+    trackingId?: string | null;
+    status: "queued" | "sent" | "delivered" | "failed";
+  },
+  dbClient?: Awaited<ReturnType<typeof getDb>>,
+): Promise<number> {
+  if (!opts.providerId && !opts.trackingId) return 0;
+  const db = dbClient ?? (await getDb());
+  const res = await db.query(
+    `UPDATE sms_messages
+       SET status=$1
+     WHERE (
+       (provider_id=$2 AND ($3='' OR id::text=$3))
+       OR (id::text=$3 AND ($2='' OR provider_id IS NULL OR provider_id=$2))
+     )
+       AND (
+         status='queued'
+         OR (status='sent' AND $1 IN ('sent','delivered','failed'))
+       )`,
+    [opts.status, opts.providerId ?? "", opts.trackingId ?? ""],
+  );
   return res.rowCount ?? 0;
 }
 
