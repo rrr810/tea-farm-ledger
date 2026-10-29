@@ -8,6 +8,7 @@ import {
   recoverActiveDate,
   shouldAutoSyncOutbox,
 } from "./dayFlow.js";
+import { formatKgUnits, parseKgInput } from "./kgInput.js";
 
 type Tab = "daily" | "workers";
 
@@ -75,6 +76,9 @@ export default function App() {
   const [noPlucking, setNoPlucking] = useState(false);
   const [noPluckReason, setNoPluckReason] = useState("");
   const [daily, setDaily] = useState<DailyEntryLocal[]>([]);
+  // The raw text is kept separately from stored tenths so kg typing is
+  // immediate and a picker can naturally enter a value such as `34.3`.
+  const [kgDrafts, setKgDrafts] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [msgType, setMsgType] = useState<"info" | "error" | "success">("info");
   const [syncing, setSyncing] = useState(false);
@@ -91,6 +95,10 @@ export default function App() {
   // Keep both scheduled and manually requested syncs to one in-flight request.
   const autoSyncTimer = useRef<number | null>(null);
   const syncingRef = useRef(false);
+  // Writes for the same input are serialized, so a slower earlier browser
+  // storage transaction can never overwrite the most recently typed kg.
+  const kgWriteQueue = useRef(new Map<string, Promise<void>>());
+  const failedKgWrites = useRef(new Set<string>());
 
   function setToast(text: string, type: "info" | "error" | "success" = "info") {
     setMsg(text);
@@ -99,6 +107,8 @@ export default function App() {
   }
 
   useEffect(() => {
+    // A draft belongs only to the currently open farm/day sheet.
+    setKgDrafts({});
     const onO = () => setOnline(true);
     const onF = () => setOnline(false);
     window.addEventListener("online", onO);
@@ -429,56 +439,190 @@ export default function App() {
 
   const activeWorkers = workers.filter((w) => w.status === "active");
 
-  // Local-only kg (no outbox until Done) — this prevents 17 to sync half-day issue
-  async function setKgForWorker(worker: LocalWorker, kgStr: string) {
-    const kg = Number(kgStr);
-    if (kgStr === "") {
-      const existing = daily.find(
-        (d) => d.worker_id === worker.worker_id && d.present,
-      );
-      if (existing) await db.daily.delete(existing.id);
+  function upsertDailyEntry(entry: DailyEntryLocal) {
+    setDaily((current) => {
+      const index = current.findIndex((item) => item.id === entry.id);
+      if (index === -1) return [...current, entry];
+      return current.map((item) => (item.id === entry.id ? entry : item));
+    });
+  }
+
+  function removeDailyEntry(id: string) {
+    setDaily((current) => current.filter((entry) => entry.id !== id));
+  }
+
+  function queueKgWrite(key: string, write: () => Promise<void>) {
+    // A new explicit entry is a retry for this picker, so it replaces any
+    // earlier local-storage error for the same day/worker key.
+    failedKgWrites.current.delete(key);
+    const previous = kgWriteQueue.current.get(key) ?? Promise.resolve();
+    const next = previous.then(write, write);
+    kgWriteQueue.current.set(key, next);
+    void next.then(
+      () => {
+        if (kgWriteQueue.current.get(key) === next) {
+          kgWriteQueue.current.delete(key);
+        }
+      },
+      () => {
+        if (kgWriteQueue.current.get(key) === next) {
+          kgWriteQueue.current.delete(key);
+        }
+        failedKgWrites.current.add(key);
+        setToast(
+          "Couldn't save kg on this phone. Keep this screen open and try again.",
+          "error",
+        );
+      },
+    );
+    return next;
+  }
+
+  async function flushKgWrites() {
+    const currentDayPrefix = `${selectedDate}-`;
+    const currentDayWrites = [...kgWriteQueue.current.entries()]
+      .filter(([key]) => key.startsWith(currentDayPrefix))
+      .map(([, write]) => write);
+    await Promise.all(currentDayWrites);
+    if (
+      [...failedKgWrites.current].some((key) =>
+        key.startsWith(currentDayPrefix),
+      )
+    ) {
+      throw new Error("kg write failed");
+    }
+  }
+
+  // Local-only kg (no outbox until Done). The visible value updates before
+  // IndexedDB writes, so field entry stays instant even on a slower phone.
+  function setKgForWorker(worker: LocalWorker, rawValue: string) {
+    const parsed = parseKgInput(rawValue);
+    if (parsed.kind === "invalid") {
+      setToast(parsed.message, "error");
       return;
     }
-    if (isNaN(kg) || kg < 0) {
-      setToast("Enter valid kg (e.g. 12.5)", "error");
-      return;
-    }
-    if (kg > 60) {
-      setToast(`Heads up: ${kg}kg unusually high (max 60)`, "info");
-    }
-    const kgUnits = Math.round(kg * 10);
+
+    setKgDrafts((current) => ({
+      ...current,
+      [worker.worker_id]: parsed.text,
+    }));
+
     const id = `${selectedDate}-${worker.worker_id}`;
+    if (parsed.kind === "empty") {
+      removeDailyEntry(id);
+      void queueKgWrite(id, () => db.daily.delete(id));
+      return;
+    }
+    if (parsed.kind === "incomplete") return;
+
     const entry: DailyEntryLocal = {
       id,
       date: selectedDate,
       worker_id: worker.worker_id,
       worker_name: worker.full_name,
-      kgUnits,
+      kgUnits: parsed.kgUnits,
       present: true,
       isPluckingDay: !noPlucking,
     };
-    await db.daily.put(entry);
-    // Do NOT queue to outbox here — only on Done for the day
+    upsertDailyEntry(entry);
+    void queueKgWrite(id, () => db.daily.put(entry));
+
+    if (parsed.kgUnits > 600) {
+      setToast(
+        `Heads up: ${formatKgUnits(parsed.kgUnits)}kg unusually high (max 60)`,
+        "info",
+      );
+    }
+  }
+
+  function normalizeKgDraft(worker: LocalWorker) {
+    const draft = kgDrafts[worker.worker_id];
+    if (draft === undefined) return;
+    const parsed = parseKgInput(draft);
+    if (parsed.kind === "valid") {
+      setKgDrafts((current) => ({
+        ...current,
+        [worker.worker_id]: formatKgUnits(parsed.kgUnits),
+      }));
+      return;
+    }
+    if (parsed.kind === "empty") return;
+
+    setKgDrafts((current) => {
+      const next = { ...current };
+      delete next[worker.worker_id];
+      return next;
+    });
+    setToast("Use whole kg or one decimal, e.g. 34.3", "error");
   }
   async function setAbsent(worker: LocalWorker, absent: boolean) {
+    const kgId = `${selectedDate}-${worker.worker_id}`;
+    const absentId = `${kgId}-absent`;
+    setKgDrafts((current) => {
+      const next = { ...current };
+      delete next[worker.worker_id];
+      return next;
+    });
+
+    const removeCurrentWorkerEntries = async () => {
+      const entries = await db.daily
+        .where("date")
+        .equals(selectedDate)
+        .filter((entry) => entry.worker_id === worker.worker_id)
+        .toArray();
+      await Promise.all(entries.map((entry) => db.daily.delete(entry.id)));
+    };
+
     if (absent) {
-      const id = `${selectedDate}-${worker.worker_id}-absent`;
-      await db.daily.put({
-        id,
+      const absence: DailyEntryLocal = {
+        id: absentId,
         date: selectedDate,
         worker_id: worker.worker_id,
         worker_name: worker.full_name,
         kgUnits: 0,
         present: false,
         isPluckingDay: !noPlucking,
-      });
-    } else {
-      const entries = daily.filter((d) => d.worker_id === worker.worker_id);
-      for (const e of entries) await db.daily.delete(e.id);
+      };
+      setDaily((current) => [
+        ...current.filter(
+          (entry) =>
+            entry.date !== selectedDate || entry.worker_id !== worker.worker_id,
+        ),
+        absence,
+      ]);
+      try {
+        // Share the kg write queue: a fast absent tap cannot be overwritten by
+        // an earlier in-flight kg write for the same picker.
+        await queueKgWrite(kgId, async () => {
+          await removeCurrentWorkerEntries();
+          await db.daily.put(absence);
+        });
+      } catch {
+        // queueKgWrite already exposes the local storage failure to the user.
+      }
+      return;
+    }
+
+    setDaily((current) =>
+      current.filter(
+        (entry) =>
+          entry.date !== selectedDate || entry.worker_id !== worker.worker_id,
+      ),
+    );
+    try {
+      await queueKgWrite(kgId, removeCurrentWorkerEntries);
+    } catch {
+      // queueKgWrite already exposes the local storage failure to the user.
     }
   }
 
   async function markDoneForDay() {
+    try {
+      await flushKgWrites();
+    } catch {
+      setToast("Could not save the latest kg. Keep this screen open and try again.", "error");
+      return;
+    }
     if (noPlucking) {
       if (!noPluckReason.trim()) {
         setToast("Add reason: e.g. heavy rain, no leaf, holiday", "error");
@@ -909,7 +1053,8 @@ export default function App() {
             const entry = daily.find(
               (d) => d.worker_id === w.worker_id && d.present,
             );
-            const kgDisplay = entry ? String(entry.kgUnits / 10) : "";
+            const kgDisplay = entry ? formatKgUnits(entry.kgUnits) : "";
+            const kgInputValue = kgDrafts[w.worker_id] ?? kgDisplay;
             const isAbsent = daily.some(
               (d) => d.worker_id === w.worker_id && !d.present,
             );
@@ -966,8 +1111,9 @@ export default function App() {
                     inputMode="decimal"
                     type="text"
                     placeholder="kg"
-                    value={kgDisplay}
+                    value={kgInputValue}
                     onChange={(e) => setKgForWorker(w, e.target.value)}
+                    onBlur={() => normalizeKgDraft(w)}
                     disabled={isAbsent || dayDone}
                   />
                   <div className="worker-pay">
