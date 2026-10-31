@@ -205,4 +205,29 @@ button { -webkit-tap-highlight-color: transparent; }
   .dashboard-week-section { grid-template-columns: 1fr !important; }
   .admin-shell table { min-width: 470px; }
 }
+/* Worker identity profiles remain visually distinct from the field register.
+   The Admin app fetches the ID image by authenticated Blob request only. */
+.worker-profiles-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.worker-profile-subline { margin-top: 3px; color: var(--admin-muted); font-size: 10px; font-weight: 500; }
+.worker-profile-open { white-space: nowrap; }
+.identity-on-file, .identity-missing { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+.identity-on-file { border: 1px solid #b7d5b9; background: #e9f4e9; color: #357046; }
+.identity-missing { border: 1px solid #ead4a7; background: #fff5df; color: #875d19; }
+.worker-profiles-footnote { margin: 14px 0 0 !important; color: var(--admin-muted); font-size: 11px; }
+.worker-profile-detail { margin-top: 20px; padding: 19px; border: 1px solid #bcd3be; border-radius: 16px; background: linear-gradient(145deg, #f1f7ee, #fffdf8); }
+.worker-profile-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.worker-profile-detail-heading h4 { margin: 4px 0 0; }
+.worker-profile-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .72fr); gap: 18px; margin-top: 17px; }
+.worker-profile-detail dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; margin: 0; }
+.worker-profile-detail dl > div { padding: 11px; border: 1px solid #d9e6d8; border-radius: 10px; background: rgba(255,255,255,.64); }
+.worker-profile-detail dt { color: #69796d; font-size: 10px; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+.worker-profile-detail dd { margin: 5px 0 0; color: var(--admin-forest); font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+.worker-profile-detail .identity-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .025em; }
+.worker-id-photo-panel { min-width: 0; padding: 12px; border: 1px dashed #a9c3aa; border-radius: 12px; background: rgba(255,253,248,.72); }
+.worker-id-photo-label { margin-bottom: 8px; color: #68796c; font-size: 10px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.worker-id-photo-panel img { display: block; width: 100%; max-height: 250px; object-fit: contain; border: 1px solid #d9d0bd; border-radius: 8px; background: #fff; }
+.worker-id-photo-panel p { margin: 0; font-size: 12px; }
+.worker-id-photo-panel small { display: block; margin-top: 8px; color: #6c776e; font-size: 10px; }
+@media (max-width: 720px) { .worker-profiles-heading, .worker-profile-detail-heading { flex-direction: column; } .worker-profile-detail-grid { grid-template-columns: 1fr; } .worker-profile-detail dl { grid-template-columns: 1fr; } }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }

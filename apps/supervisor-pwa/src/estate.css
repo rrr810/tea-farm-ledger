@@ -445,3 +445,77 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .worker-manager-toggle { font-size: 14px !important; }
 .no-plucking-confirm, .empty-workers button, .form-actions button { font-size: 13px !important; }
+
+/* Private worker-identity intake: the supervisor may record consent and upload,
+   while the sensitive record itself remains out of the PWA worker list. */
+.identity-intake-note { margin: -2px 0 12px; color: #64746a; font-size: 11px; line-height: 1.45; }
+.id-photo-upload { min-height: 41px; flex: 1 1 150px; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px dashed #9eb89f; border-radius: 10px; background: #f5faf2; color: #315c43; font-size: 11px; font-weight: 700; cursor: pointer; overflow: hidden; }
+.id-photo-upload span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.id-photo-upload input[type="file"] { max-width: 105px; min-height: 0 !important; padding: 0 !important; border: 0 !important; background: transparent !important; color: transparent; font-size: 0; }
+.id-photo-upload input[type="file"]::file-selector-button { margin: 0; padding: 5px 7px; border: 1px solid #7ea58a; border-radius: 7px; background: #fffdf7; color: #205339; font-size: 10px; font-weight: 800; cursor: pointer; }
+.identity-consent-line { align-items: flex-start; padding: 9px 10px; border: 1px solid #d8e4d4; border-radius: 10px; background: #f7fbf5; line-height: 1.4; }
+.identity-consent-line input { margin-top: 1px; flex: 0 0 auto; }
+.add-worker-submit:disabled, .cancel-worker:disabled { cursor: default; opacity: .65; }
+.identity-completion-card { margin-top: 15px; padding-top: 15px; border-top: 1px dashed #c7d7c8; }
+.identity-completion-card p { margin: -3px 0 11px; color: #64746a; font-size: 11px; line-height: 1.45; }
+.identity-completion-submit { width: 100%; margin-top: 11px; }
+
+/* Farm-bound private identity access. The field app stays fully usable for
+   ordinary kg/day work when this panel is locked. */
+.identity-access-card {
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid #d8e4d4;
+  border-radius: 12px;
+  background: #f7fbf5;
+}
+.identity-access-card.is-unlocked {
+  border-color: #9fc8a5;
+  background: #eff8ed;
+}
+.identity-access-card.is-locked {
+  border-color: #e2d7bf;
+  background: #fffaf0;
+}
+.identity-access-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--estate-forest);
+  font-size: 12px;
+}
+.identity-access-heading span { color: #68756a; font-size: 10px; font-weight: 700; }
+.identity-access-card p { margin: 7px 0 10px; color: #64746a; font-size: 11px; line-height: 1.45; }
+.identity-signin-row { display: flex; gap: 7px; flex-wrap: wrap; }
+.identity-signin-row input {
+  min-width: 0;
+  flex: 1 1 130px;
+  min-height: 39px;
+  padding: 8px 10px;
+  border: 1px solid #b7c8b7;
+  border-radius: 9px;
+  background: #fffdf7;
+  outline: none;
+}
+.identity-signin-button, .identity-lock-button {
+  min-height: 39px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.identity-signin-button { border: 1px solid #1d6449; background: var(--estate-leaf); color: #fffdf7; }
+.identity-lock-button { border: 1px solid #c4a778; background: #fffdf7; color: #795429; }
+.identity-signin-button:disabled { cursor: default; opacity: .65; }
+.identity-locked-note {
+  margin-top: 9px;
+  padding: 9px 10px;
+  border: 1px dashed #d8c7a7;
+  border-radius: 9px;
+  background: #fffaf2;
+  color: #765f3a;
+  font-size: 11px;
+  line-height: 1.4;
+}

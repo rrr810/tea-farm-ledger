@@ -1,7 +1,11 @@
 import { useEffect, useState, useRef } from "react";
 import { db, todayEAT } from "./db.js";
 import type { LocalWorker, DailyEntryLocal, OutboxEvent } from "./db.js";
-import { normalizeKePhone, calculateWorkerWeekPayKes } from "@tea-ledger/core";
+import {
+  normalizeKePhone,
+  normalizeNationalIdNumber,
+  calculateWorkerWeekPayKes,
+} from "@tea-ledger/core";
 import {
   activeDateStorageKey,
   nextCalendarDate,
@@ -11,6 +15,37 @@ import {
 import { formatKgUnits, parseKgInput } from "./kgInput.js";
 
 type Tab = "daily" | "workers";
+
+type SupervisorIdentitySession = {
+  token: string;
+  username: string;
+  farmId: string;
+  expiresAt: string;
+};
+
+const SUPERVISOR_IDENTITY_SESSION_KEY = "supervisor_identity_session";
+
+function readSupervisorIdentitySession(): SupervisorIdentitySession | null {
+  try {
+    const raw = sessionStorage.getItem(SUPERVISOR_IDENTITY_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SupervisorIdentitySession;
+    if (
+      !parsed.token ||
+      !parsed.username ||
+      !parsed.farmId ||
+      !parsed.expiresAt ||
+      new Date(parsed.expiresAt).getTime() <= Date.now()
+    ) {
+      sessionStorage.removeItem(SUPERVISOR_IDENTITY_SESSION_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    sessionStorage.removeItem(SUPERVISOR_IDENTITY_SESSION_KEY);
+    return null;
+  }
+}
 
 function getDeviceId() {
   let id = localStorage.getItem("device_id");
@@ -60,6 +95,84 @@ function isSaturdayEAT(d: string) {
   return dow === 6;
 }
 
+const ID_PHOTO_TARGET_BYTES = 900_000;
+const ID_PHOTO_MAX_SOURCE_BYTES = 8_000_000;
+
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read the ID image"));
+    };
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("Could not prepare the ID image"))),
+      "image/jpeg",
+      quality,
+    );
+  });
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not prepare the ID image"));
+    reader.onload = () => {
+      const value = String(reader.result ?? "");
+      const comma = value.indexOf(",");
+      if (comma === -1) return reject(new Error("Could not prepare the ID image"));
+      resolve(value.slice(comma + 1));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Keep a document photo out of the offline database and strip excess source
+ * metadata by rendering a bounded JPEG only in transient browser memory.
+ */
+async function prepareIdPhoto(file: File): Promise<{ content_type: "image/jpeg"; base64: string }> {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("Use a JPEG, PNG, or WebP image for the ID photo");
+  }
+  if (file.size <= 0 || file.size > ID_PHOTO_MAX_SOURCE_BYTES) {
+    throw new Error("Choose a clear ID image smaller than 8 MB");
+  }
+  const image = await loadImage(file);
+  const largestSide = Math.max(image.naturalWidth, image.naturalHeight);
+  for (const maxSide of [1600, 1280, 960]) {
+    const scale = Math.min(1, maxSide / Math.max(1, largestSide));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("This phone cannot prepare the ID image");
+    context.fillStyle = "#FFFFFF";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    for (const quality of [0.82, 0.72, 0.62]) {
+      const blob = await canvasToBlob(canvas, quality);
+      if (blob.size <= ID_PHOTO_TARGET_BYTES) {
+        return { content_type: "image/jpeg", base64: await blobToBase64(blob) };
+      }
+    }
+  }
+  throw new Error("ID image is still too large. Take a clearer, closer photo and try again.");
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("daily");
   const [pending, setPending] = useState(0);
@@ -86,11 +199,30 @@ export default function App() {
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [nationalIdNumber, setNationalIdNumber] = useState("");
+  const [idPhoto, setIdPhoto] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
+  const [identityConsent, setIdentityConsent] = useState(false);
+  const [registeringWorker, setRegisteringWorker] = useState(false);
   const [showAddWorker, setShowAddWorker] = useState(false);
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
   const [fireDate, setFireDate] = useState(todayEAT());
   const [fireReason, setFireReason] = useState("");
+  const [profileNationalIdNumber, setProfileNationalIdNumber] = useState("");
+  const [profileIdPhoto, setProfileIdPhoto] = useState<File | null>(null);
+  const [profileIdentityConsent, setProfileIdentityConsent] = useState(false);
+  const [savingProfileIdentity, setSavingProfileIdentity] = useState(false);
+
+  // A Supervisor session is deliberately session-only: it is never written to
+  // IndexedDB/localStorage and it gates only private identity tools, not the
+  // ordinary offline kg/day workflow.
+  const [supervisorSession, setSupervisorSession] = useState<SupervisorIdentitySession | null>(
+    () => readSupervisorIdentitySession(),
+  );
+  const [supervisorSessionVerified, setSupervisorSessionVerified] = useState(false);
+  const [supervisorUsername, setSupervisorUsername] = useState("");
+  const [supervisorPassword, setSupervisorPassword] = useState("");
+  const [supervisorSigningIn, setSupervisorSigningIn] = useState(false);
 
   // Keep both scheduled and manually requested syncs to one in-flight request.
   const autoSyncTimer = useRef<number | null>(null);
@@ -105,6 +237,156 @@ export default function App() {
     setMsgType(type);
     if (text) setTimeout(() => setMsg(""), 5000);
   }
+
+  function clearPrivateIdentityDrafts() {
+    setNationalIdNumber("");
+    setIdPhoto(null);
+    setIdentityConsent(false);
+    setProfileNationalIdNumber("");
+    setProfileIdPhoto(null);
+    setProfileIdentityConsent(false);
+  }
+
+  function clearSupervisorIdentitySession() {
+    sessionStorage.removeItem(SUPERVISOR_IDENTITY_SESSION_KEY);
+    setSupervisorSession(null);
+    setSupervisorSessionVerified(false);
+    setSupervisorPassword("");
+    clearPrivateIdentityDrafts();
+  }
+
+  async function signInForPrivateIdentity() {
+    if (!online) {
+      setToast("Connect to sign in for private ID tools", "error");
+      return;
+    }
+    if (!farmId) {
+      setToast("Create or enter the Farm ID before Supervisor sign-in", "error");
+      return;
+    }
+    if (!supervisorUsername.trim() || !supervisorPassword) {
+      setToast("Enter your Supervisor username and password", "error");
+      return;
+    }
+    setSupervisorSigningIn(true);
+    try {
+      const response = await fetch("/api/supervisor/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          farm_id: farmId,
+          username: supervisorUsername,
+          password: supervisorPassword,
+        }),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        token?: string;
+        username?: string;
+        farm_id?: string;
+        expires_at?: string;
+        error?: string;
+      };
+      if (
+        !response.ok ||
+        !result.token ||
+        !result.username ||
+        result.farm_id !== farmId ||
+        !result.expires_at
+      ) {
+        throw new Error(result.error || "Supervisor sign-in failed");
+      }
+      const session: SupervisorIdentitySession = {
+        token: result.token,
+        username: result.username,
+        farmId: result.farm_id,
+        expiresAt: result.expires_at,
+      };
+      sessionStorage.setItem(SUPERVISOR_IDENTITY_SESSION_KEY, JSON.stringify(session));
+      setSupervisorSession(session);
+      setSupervisorSessionVerified(true);
+      setSupervisorPassword("");
+      setToast("Private ID tools unlocked for this farm until the session expires.", "success");
+    } catch (error) {
+      setToast(String((error as Error).message), "error");
+    } finally {
+      setSupervisorSigningIn(false);
+    }
+  }
+
+  async function signOutOfPrivateIdentity() {
+    const token = supervisorSession?.token;
+    clearSupervisorIdentitySession();
+    if (token && online) {
+      try {
+        await fetch("/api/supervisor/logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {}
+    }
+    setToast("Private ID tools locked and private drafts cleared.", "info");
+  }
+
+  const privateIdentityAccessReady =
+    online &&
+    supervisorSessionVerified &&
+    supervisorSession?.farmId === farmId &&
+    new Date(supervisorSession.expiresAt).getTime() > Date.now();
+
+  useEffect(() => {
+    if (!supervisorSession) return;
+    if (!farmId || supervisorSession.farmId !== farmId) {
+      clearSupervisorIdentitySession();
+      return;
+    }
+    if (!online) {
+      setSupervisorSessionVerified(false);
+      clearPrivateIdentityDrafts();
+      return;
+    }
+    let cancelled = false;
+    setSupervisorSessionVerified(false);
+    void fetch(`/api/supervisor/farms/${farmId}/access`, {
+      headers: { Authorization: `Bearer ${supervisorSession.token}` },
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("session invalid");
+        const result = (await response.json()) as { expires_at?: string; username?: string };
+        if (cancelled || !result.expires_at || !result.username) return;
+        const next = {
+          ...supervisorSession,
+          username: result.username,
+          expiresAt: result.expires_at,
+        };
+        sessionStorage.setItem(SUPERVISOR_IDENTITY_SESSION_KEY, JSON.stringify(next));
+        setSupervisorSession(next);
+        setSupervisorSessionVerified(true);
+      })
+      .catch(() => {
+        if (!cancelled) clearSupervisorIdentitySession();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [farmId, online, supervisorSession?.token]);
+
+  useEffect(() => {
+    if (!supervisorSession) return;
+    const msUntilExpiry = new Date(supervisorSession.expiresAt).getTime() - Date.now();
+    if (msUntilExpiry <= 0) {
+      clearSupervisorIdentitySession();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      clearSupervisorIdentitySession();
+      setToast("Private ID session expired and private drafts were cleared.", "info");
+    }, msUntilExpiry);
+    return () => window.clearTimeout(timer);
+  }, [supervisorSession?.token, supervisorSession?.expiresAt]);
+
+  useEffect(() => {
+    if (!online) clearPrivateIdentityDrafts();
+  }, [online]);
 
   useEffect(() => {
     // A draft belongs only to the currently open farm/day sheet.
@@ -193,6 +475,7 @@ export default function App() {
   }
 
   async function saveFarmId(v: string) {
+    if (v !== farmId) clearSupervisorIdentitySession();
     setFarmId(v);
     localStorage.setItem("farm_id", v);
     activateDate(activeDateForFarm(v), v);
@@ -233,34 +516,7 @@ export default function App() {
     }
   }
 
-  async function registerWorker() {
-    const norm = normalizeKePhone(phone);
-    if (!norm.ok) {
-      setToast(`Phone invalid: ${norm.reason} — use 07... or +254...`, "error");
-      return;
-    }
-    if (!fullName.trim()) {
-      setToast("Enter worker name", "error");
-      return;
-    }
-    if (!consent) {
-      setToast("Tick consent — worker agreed to SMS", "error");
-      return;
-    }
-    if (!farmId) {
-      setToast("Create or enter Farm ID first (top bar)", "error");
-      return;
-    }
-    const dup = workers.find(
-      (w) => w.phone_e164 === norm.e164 && w.status === "active",
-    );
-    if (dup) {
-      setToast(
-        `${dup.full_name} already uses ${norm.e164} — end that worker first`,
-        "error",
-      );
-      return;
-    }
+  async function queueOfflineBasicWorker(norm: { e164: string }) {
     const worker_id = crypto.randomUUID();
     const worker: LocalWorker = {
       worker_id,
@@ -274,7 +530,7 @@ export default function App() {
     };
     await db.workers.put(worker);
     const device_id = getDeviceId();
-    const ev = {
+    const registration = {
       event_id: crypto.randomUUID(),
       farm_id: farmId,
       device_id,
@@ -291,22 +547,7 @@ export default function App() {
       business_date: selectedDate,
       client_timestamp: new Date().toISOString(),
     };
-    await db.outbox.add({
-      event_id: ev.event_id,
-      farm_id: farmId,
-      payload: ev,
-      createdAt: new Date().toISOString(),
-      type: "worker.registered",
-    });
-    const empId = crypto.randomUUID();
-    await db.employment.add({
-      id: empId,
-      worker_id,
-      farm_id: farmId,
-      start_date: selectedDate,
-      end_date: null,
-    });
-    const empEv = {
+    const employment = {
       event_id: crypto.randomUUID(),
       farm_id: farmId,
       device_id,
@@ -317,21 +558,220 @@ export default function App() {
       client_timestamp: new Date().toISOString(),
     };
     await db.outbox.add({
-      event_id: empEv.event_id,
+      event_id: registration.event_id,
       farm_id: farmId,
-      payload: empEv,
+      payload: registration,
+      createdAt: new Date().toISOString(),
+      type: "worker.registered",
+    });
+    await db.employment.add({
+      id: crypto.randomUUID(),
+      worker_id,
+      farm_id: farmId,
+      start_date: selectedDate,
+      end_date: null,
+    });
+    await db.outbox.add({
+      event_id: employment.event_id,
+      farm_id: farmId,
+      payload: employment,
       createdAt: new Date().toISOString(),
       type: "employment.started",
     });
     setToast(
-      `${worker.full_name} added — auto-syncing while online`,
+      `${worker.full_name} saved as a basic worker — complete private ID details online later.`,
       "success",
     );
     setFullName("");
     setPhone("");
+    setNationalIdNumber("");
+    setIdPhoto(null);
     setConsent(false);
+    setIdentityConsent(false);
     setShowAddWorker(false);
   }
+
+  async function registerWorker() {
+    const norm = normalizeKePhone(phone);
+    if (!norm.ok) {
+      setToast(`Phone invalid: ${norm.reason} — use 07... or +254...`, "error");
+      return;
+    }
+    if (!fullName.trim()) {
+      setToast("Enter worker name", "error");
+      return;
+    }
+    if (!consent) {
+      setToast("Tick SMS consent before adding the worker", "error");
+      return;
+    }
+    if (!farmId) {
+      setToast("Create or enter Farm ID first (top bar)", "error");
+      return;
+    }
+    const dup = workers.find(
+      (w) => w.phone_e164 === norm.e164 && w.status === "active",
+    );
+    if (dup) {
+      setToast(
+        `${dup.full_name} already uses ${norm.e164} — end that worker first`,
+        "error",
+      );
+      return;
+    }
+    if (!privateIdentityAccessReady) {
+      const reason = online
+        ? "Private ID details need a Supervisor sign-in for this farm."
+        : "Private ID details cannot be saved offline and will not be queued on this phone.";
+      const saveBasicOnly = window.confirm(
+        `${reason} Add this worker with name and phone only, then complete the ID profile online after Supervisor sign-in?`,
+      );
+      if (saveBasicOnly) await queueOfflineBasicWorker(norm);
+      return;
+    }
+    const nationalId = normalizeNationalIdNumber(nationalIdNumber);
+    if (!nationalId.ok) {
+      setToast(nationalId.reason, "error");
+      return;
+    }
+    if (!identityConsent) {
+      setToast("Tick identity-information consent before adding the worker", "error");
+      return;
+    }
+
+    setRegisteringWorker(true);
+    try {
+      const preparedPhoto = idPhoto ? await prepareIdPhoto(idPhoto) : undefined;
+      const response = await fetch(`/api/farms/${farmId}/workers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supervisorSession!.token}`,
+        },
+        body: JSON.stringify({
+          full_name: fullName.trim(),
+          phone: norm.e164,
+          consent: true,
+          national_id_number: nationalId.value,
+          identity_consent: true,
+          id_photo: preparedPhoto,
+        }),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        worker_id?: string;
+        phone_e164?: string;
+        id_photo_recorded?: boolean;
+        error?: string;
+      };
+      if (response.status === 401 || response.status === 403) {
+        clearSupervisorIdentitySession();
+      }
+      if (!response.ok || !result.worker_id || !result.phone_e164) {
+        throw new Error(result.error || "Could not add the worker");
+      }
+
+      const worker: LocalWorker = {
+        worker_id: result.worker_id,
+        farm_id: farmId,
+        full_name: fullName.trim(),
+        phone_e164: result.phone_e164,
+        status: "active",
+        verified: false,
+        consent_at: new Date().toISOString(),
+        consent_author: "supervisor",
+      };
+      await db.workers.put(worker);
+      await db.employment.put({
+        id: crypto.randomUUID(),
+        worker_id: worker.worker_id,
+        farm_id: farmId,
+        start_date: todayEAT(),
+        end_date: null,
+      });
+      setToast(
+        `${worker.full_name} added securely${result.id_photo_recorded ? " with ID photo" : ""}.`,
+        "success",
+      );
+      setFullName("");
+      setPhone("");
+      setNationalIdNumber("");
+      setIdPhoto(null);
+      setConsent(false);
+      setIdentityConsent(false);
+      setShowAddWorker(false);
+    } catch (error) {
+      setToast(String((error as Error).message), "error");
+    } finally {
+      setRegisteringWorker(false);
+    }
+  }
+  async function completeWorkerIdentity() {
+    if (!selectedWorkerId) {
+      setToast("Select a worker first", "error");
+      return;
+    }
+    if (!privateIdentityAccessReady) {
+      setToast(
+        online
+          ? "Sign in as this farm's Supervisor before completing private ID details."
+          : "Connect to complete private ID details. They are never queued offline.",
+        "error",
+      );
+      return;
+    }
+    const nationalId = normalizeNationalIdNumber(profileNationalIdNumber);
+    if (!nationalId.ok) {
+      setToast(nationalId.reason, "error");
+      return;
+    }
+    if (!profileIdentityConsent) {
+      setToast("Tick identity-information consent before saving", "error");
+      return;
+    }
+    setSavingProfileIdentity(true);
+    try {
+      const preparedPhoto = profileIdPhoto
+        ? await prepareIdPhoto(profileIdPhoto)
+        : undefined;
+      const response = await fetch(
+        `/api/farms/${farmId}/workers/${selectedWorkerId}/identity`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${supervisorSession!.token}`,
+          },
+          body: JSON.stringify({
+            national_id_number: nationalId.value,
+            identity_consent: true,
+            id_photo: preparedPhoto,
+          }),
+        },
+      );
+      const result = (await response.json().catch(() => ({}))) as {
+        id_photo_recorded?: boolean;
+        error?: string;
+      };
+      if (response.status === 401 || response.status === 403) {
+        clearSupervisorIdentitySession();
+      }
+      if (!response.ok) {
+        throw new Error(result.error || "Could not save the private ID profile");
+      }
+      setToast(
+        `Private ID profile saved${result.id_photo_recorded ? " with ID photo" : ""}.`,
+        "success",
+      );
+      setProfileNationalIdNumber("");
+      setProfileIdPhoto(null);
+      setProfileIdentityConsent(false);
+    } catch (error) {
+      setToast(String((error as Error).message), "error");
+    } finally {
+      setSavingProfileIdentity(false);
+    }
+  }
+
   async function fireWorker() {
     if (!selectedWorkerId) {
       setToast("Select a worker", "error");
@@ -1188,6 +1628,77 @@ export default function App() {
           </button>
           {tab === "workers" && (
             <div className="worker-manager-body">
+              <section
+                className={`identity-access-card ${privateIdentityAccessReady ? "is-unlocked" : "is-locked"}`}
+                aria-live="polite"
+              >
+                {privateIdentityAccessReady ? (
+                  <>
+                    <div className="identity-access-heading">
+                      <strong>Private ID tools unlocked</strong>
+                      <span>Supervisor: {supervisorSession!.username}</span>
+                    </div>
+                    <p>
+                      This farm-only session expires at{" "}
+                      {new Date(supervisorSession!.expiresAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}. Private drafts clear when you lock it or go offline.
+                    </p>
+                    <button
+                      className="identity-lock-button"
+                      onClick={signOutOfPrivateIdentity}
+                    >
+                      Lock private ID tools
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="identity-access-heading">
+                      <strong>Private ID tools are locked</strong>
+                      <span>{online ? "Supervisor sign-in required" : "Internet connection required"}</span>
+                    </div>
+                    <p>
+                      You can still register a basic worker and use all daily kg
+                      tools. National ID details and images are accepted only
+                      online after an Admin-provisioned, farm-bound Supervisor sign-in.
+                    </p>
+                    {online && (
+                      <div className="identity-signin-row">
+                        <input
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          autoComplete="username"
+                          aria-label="Supervisor username"
+                          placeholder="Supervisor username"
+                          value={supervisorUsername}
+                          disabled={supervisorSigningIn}
+                          onChange={(e) => setSupervisorUsername(e.target.value)}
+                        />
+                        <input
+                          type="password"
+                          autoComplete="current-password"
+                          aria-label="Supervisor password"
+                          placeholder="Supervisor password"
+                          value={supervisorPassword}
+                          disabled={supervisorSigningIn}
+                          onChange={(e) => setSupervisorPassword(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void signInForPrivateIdentity();
+                          }}
+                        />
+                        <button
+                          className="identity-signin-button"
+                          disabled={supervisorSigningIn || !farmId}
+                          onClick={() => void signInForPrivateIdentity()}
+                        >
+                          {supervisorSigningIn ? "Signing in…" : "Sign in"}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
               {!showAddWorker ? (
                 <button
                   className="add-worker-trigger"
@@ -1199,43 +1710,104 @@ export default function App() {
               ) : (
                 <div className="add-worker-form">
                   <div className="form-title">Add picker</div>
+                  <p className="identity-intake-note">
+                    Identity details are private to the Owner/Admin. They are not
+                    kept in the phone’s offline queue or shown in the field list.
+                  </p>
                   <div className="form-row">
                     <input
                       data-testid="worker-name"
-                      placeholder="Name e.g. Kiptoo"
+                      placeholder="Full name e.g. Kiptoo Koech"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
+                      disabled={registeringWorker}
                     />
                     <input
                       data-testid="worker-phone"
-                      placeholder="07... or +254..."
+                      inputMode="tel"
+                      placeholder="Phone: 07... or +254..."
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
+                      disabled={registeringWorker}
                     />
                   </div>
+                  {privateIdentityAccessReady ? (
+                    <div className="form-row" style={{ marginTop: 8 }}>
+                      <input
+                        data-testid="worker-national-id"
+                        inputMode="numeric"
+                        placeholder="National ID number"
+                        value={nationalIdNumber}
+                        onChange={(e) => setNationalIdNumber(e.target.value)}
+                        disabled={registeringWorker}
+                      />
+                      <label className="id-photo-upload">
+                        <span>{idPhoto ? `ID photo: ${idPhoto.name}` : "Optional ID photo"}</span>
+                        <input
+                          data-testid="worker-id-photo"
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          capture="environment"
+                          disabled={registeringWorker}
+                          onChange={(e) => setIdPhoto(e.target.files?.[0] ?? null)}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="identity-locked-note">
+                      Add a basic worker now. Complete the private ID profile only
+                      after Supervisor sign-in while online.
+                    </div>
+                  )}
                   <label className="consent-line">
                     <input
                       data-testid="consent"
                       type="checkbox"
                       checked={consent}
                       onChange={(e) => setConsent(e.target.checked)}
+                      disabled={registeringWorker}
                     />
-                    <span>Worker agreed to SMS receipts & storage</span>
+                    <span>Worker agreed to receive SMS receipts.</span>
                   </label>
+                  {privateIdentityAccessReady && (
+                    <label className="consent-line identity-consent-line">
+                      <input
+                        data-testid="identity-consent"
+                        type="checkbox"
+                        checked={identityConsent}
+                        onChange={(e) => setIdentityConsent(e.target.checked)}
+                        disabled={registeringWorker}
+                      />
+                      <span>
+                        Worker agreed to private storage of their ID number and,
+                        if attached, ID image. Only Owner/Admin can view it.
+                      </span>
+                    </label>
+                  )}
                   <div className="form-actions">
                     <button
                       className="add-worker-submit"
                       data-testid="add-worker"
                       onClick={registerWorker}
+                      disabled={registeringWorker}
                     >
-                      Add worker
+                      {registeringWorker
+                        ? "Saving securely…"
+                        : privateIdentityAccessReady
+                          ? "Add worker with private ID"
+                          : "Add basic worker"}
                     </button>
                     <button
                       className="cancel-worker"
+                      disabled={registeringWorker}
                       onClick={() => {
                         setShowAddWorker(false);
                         setFullName("");
                         setPhone("");
+                        setNationalIdNumber("");
+                        setIdPhoto(null);
+                        setConsent(false);
+                        setIdentityConsent(false);
                       }}
                     >
                       Cancel
@@ -1265,11 +1837,14 @@ export default function App() {
                     </div>
                     <button
                       className="worker-select-btn"
-                      onClick={() =>
-                        setSelectedWorkerId(
-                          w.worker_id === selectedWorkerId ? "" : w.worker_id,
-                        )
-                      }
+                      onClick={() => {
+                        const nextWorkerId =
+                          w.worker_id === selectedWorkerId ? "" : w.worker_id;
+                        setSelectedWorkerId(nextWorkerId);
+                        setProfileNationalIdNumber("");
+                        setProfileIdPhoto(null);
+                        setProfileIdentityConsent(false);
+                      }}
                     >
                       {selectedWorkerId === w.worker_id ? "Selected" : "Manage"}
                     </button>
@@ -1303,6 +1878,71 @@ export default function App() {
                         Rehire
                       </button>
                     </div>
+                    {privateIdentityAccessReady ? (
+                    <div className="identity-completion-card">
+                      <div className="form-title">Complete private ID profile</div>
+                      <p>
+                        Use this for an existing worker. These details go straight
+                        to the private Admin profile and are never kept in this
+                        phone’s offline queue.
+                      </p>
+                      <div className="form-row">
+                        <input
+                          data-testid="existing-worker-national-id"
+                          inputMode="numeric"
+                          placeholder="National ID number"
+                          value={profileNationalIdNumber}
+                          disabled={savingProfileIdentity}
+                          onChange={(e) => setProfileNationalIdNumber(e.target.value)}
+                        />
+                        <label className="id-photo-upload">
+                          <span>
+                            {profileIdPhoto
+                              ? `ID photo: ${profileIdPhoto.name}`
+                              : "Optional ID photo"}
+                          </span>
+                          <input
+                            data-testid="existing-worker-id-photo"
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            capture="environment"
+                            disabled={savingProfileIdentity}
+                            onChange={(e) => setProfileIdPhoto(e.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                      </div>
+                      <label className="consent-line identity-consent-line">
+                        <input
+                          data-testid="existing-worker-identity-consent"
+                          type="checkbox"
+                          checked={profileIdentityConsent}
+                          disabled={savingProfileIdentity}
+                          onChange={(e) => setProfileIdentityConsent(e.target.checked)}
+                        />
+                        <span>
+                          Worker agreed to private storage of their ID number and,
+                          if attached, ID image. Only Owner/Admin can view it.
+                        </span>
+                      </label>
+                      <button
+                        className="add-worker-submit identity-completion-submit"
+                        disabled={savingProfileIdentity}
+                        onClick={completeWorkerIdentity}
+                      >
+                        {savingProfileIdentity
+                          ? "Saving securely…"
+                          : "Save private ID profile"}
+                      </button>
+                    </div>
+                    ) : (
+                      <div className="identity-completion-card identity-locked-note">
+                        <div className="form-title">Private ID profile locked</div>
+                        <p>
+                          Sign in as this farm's Supervisor while online before
+                          entering or completing a worker's private ID profile.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

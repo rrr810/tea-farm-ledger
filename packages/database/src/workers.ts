@@ -10,6 +10,7 @@ export type WorkerRow = {
   verified: boolean;
   consent_at: string | null;
   consent_author: string | null;
+  created_at: string | Date;
 };
 
 export async function createWorker(opts: { farmId: string; fullName: string; phone: string; consentAuthor: string; dbClient?: Awaited<ReturnType<typeof getDb>> }) {
@@ -33,7 +34,16 @@ export async function createWorker(opts: { farmId: string; fullName: string; pho
 
 export async function listWorkers(farmId: string, dbClient?: Awaited<ReturnType<typeof getDb>>) {
   const db = dbClient ?? (await getDb());
-  const res = await db.query("SELECT * FROM workers WHERE farm_id=$1 ORDER BY created_at ASC", [farmId]);
+  // Never SELECT * here. This endpoint feeds the supervisor PWA and must stay
+  // safe even as private worker-profile tables gain sensitive fields.
+  const res = await db.query(
+    `SELECT worker_id, farm_id, full_name, phone_e164, status, verified,
+            consent_at, consent_author, created_at
+       FROM workers
+      WHERE farm_id=$1
+      ORDER BY created_at ASC`,
+    [farmId],
+  );
   return res.rows as WorkerRow[];
 }
 

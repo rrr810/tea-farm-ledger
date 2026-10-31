@@ -19,6 +19,7 @@
 
 ## Privacy and security
 - Collect the minimum: worker name and mobile number only. No national ID numbers.
+- **Narrow approved exception (2026-10-31):** the owner explicitly authorized a private worker-identity record containing a national ID number and optional ID-card image. It must be encrypted at rest, collected only with separately recorded identity consent, excluded from PWA sync/outbox/SMS/CSV/public worker responses, and visible only through farm-bound Admin-authenticated routes. Existing workers are completed gradually; identity collection is never a payroll block.
 - No secrets in the repo. Environment variables only; keep .env.example current.
 - Every change is attributable (author, device, time) in the audit log.
 

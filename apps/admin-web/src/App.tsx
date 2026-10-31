@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, token, setToken, clearToken, farmId, setFarmId } from "./api.js";
 import { resolveFarmSelection } from "./farmSelection.js";
 import { currentWeekStartEAT } from "./week.js";
+import { SupervisorAccessPanel } from "./SupervisorAccessPanel.js";
 
 type Tab =
   | "login"
@@ -30,6 +31,30 @@ type PayrollSheetResponse = {
     lines: PayrollLine[];
     totals: { totalKg: number; totalAmountKes: number };
   };
+};
+
+type WorkerProfileSummary = {
+  worker_id: string;
+  farm_id: string;
+  full_name: string;
+  phone_e164: string | null;
+  status: string;
+  verified: boolean;
+  created_at: string;
+  has_identity: boolean;
+  has_id_photo: boolean;
+  identity_recorded_at: string | null;
+};
+
+type WorkerProfile = WorkerProfileSummary & {
+  national_id_number: string | null;
+  identity_consent_at: string | null;
+  identity_consent_author: string | null;
+  id_photo: {
+    content_type: string;
+    byte_size: number;
+    captured_at: string;
+  } | null;
 };
 
 // ---- reporting helpers (quarter math + lightweight SVG charts, no deps) ----
@@ -252,7 +277,11 @@ export default function App() {
   const [currentFarm, setCurrentFarm] = useState(farmId());
 
   // data
-  const [workers, setWorkers] = useState<unknown[]>([]);
+  const [workers, setWorkers] = useState<WorkerProfileSummary[]>([]);
+  const [selectedWorkerProfile, setSelectedWorkerProfile] =
+    useState<WorkerProfile | null>(null);
+  const [workerProfileLoading, setWorkerProfileLoading] = useState(false);
+  const [workerIdPhotoUrl, setWorkerIdPhotoUrl] = useState<string | null>(null);
   const [payrollWeeks, setPayrollWeeks] = useState<unknown[]>([]);
   const [payrollSheet, setPayrollSheet] = useState<PayrollSheetResponse | null>(
     null,
@@ -303,17 +332,24 @@ export default function App() {
 
   async function loadFarms() {
     try {
-      const res = (await api.farms()) as {
-        farms: Array<{ farm_id: string; name: string }>;
-      };
-      setFarms(res.farms);
-      const nextFarm = resolveFarmSelection(currentFarm, res.farms);
+      const [farmResult, session] = await Promise.all([
+        api.farms() as Promise<{ farms: Array<{ farm_id: string; name: string }> }>,
+        api.me() as Promise<{ farm_id: string; role: string }>,
+      ]);
+      // Identity records are intentionally farm-bound. Do not offer a farm
+      // selector that lets this Admin account attempt to cross that boundary.
+      const allowedFarms = farmResult.farms.filter(
+        (farm) => farm.farm_id === session.farm_id,
+      );
+      setFarms(allowedFarms);
+      const nextFarm = resolveFarmSelection(currentFarm, allowedFarms);
       if (nextFarm !== currentFarm) {
         setCurrentFarm(nextFarm);
         if (nextFarm) setFarmId(nextFarm);
         else localStorage.removeItem("farm_id");
       }
     } catch (e) {
+      // Before login there is no session yet; the login flow calls this again.
       console.error(e);
     }
   }
@@ -327,7 +363,7 @@ export default function App() {
       const liveWeekStart = currentWeekStartEAT();
       const [w, pw, cf, cr, sms, mon, hard, au, ra, liveSheet] =
         await Promise.all([
-          api.workers(currentFarm) as Promise<{ workers: unknown[] }>,
+          api.adminWorkers(currentFarm) as Promise<{ workers: WorkerProfileSummary[] }>,
           api.payrollWeeks(currentFarm) as Promise<{ weeks: unknown[] }>,
           api.conflicts(currentFarm) as Promise<{ conflicts: unknown[] }>,
           api.corrections(currentFarm) as Promise<{ corrections: unknown[] }>,
@@ -374,8 +410,19 @@ export default function App() {
     if (currentFarm) loadDashboard();
   }, [currentFarm, tab, quarter]);
   useEffect(() => {
+    // A profile belongs to one farm; never keep it visible while the selected
+    // farm changes, even briefly.
+    setSelectedWorkerProfile(null);
+    setWorkerIdPhotoUrl(null);
+  }, [currentFarm]);
+  useEffect(() => {
     loadFarms();
   }, []);
+  useEffect(() => {
+    return () => {
+      if (workerIdPhotoUrl) URL.revokeObjectURL(workerIdPhotoUrl);
+    };
+  }, [workerIdPhotoUrl]);
 
   async function loadPayroll() {
     if (!currentFarm) return;
@@ -420,6 +467,32 @@ export default function App() {
     }
   }
 
+  async function openWorkerProfile(workerId: string) {
+    if (!currentFarm || workerProfileLoading) return;
+    setWorkerProfileLoading(true);
+    setSelectedWorkerProfile(null);
+    setWorkerIdPhotoUrl(null);
+    try {
+      const result = (await api.adminWorkerProfile(currentFarm, workerId)) as {
+        worker: WorkerProfile;
+      };
+      setSelectedWorkerProfile(result.worker);
+      if (result.worker.id_photo) {
+        const blob = await api.adminWorkerIdPhoto(currentFarm, workerId);
+        setWorkerIdPhotoUrl(URL.createObjectURL(blob));
+      }
+    } catch (error) {
+      toast(String(error));
+    } finally {
+      setWorkerProfileLoading(false);
+    }
+  }
+
+  function closeWorkerProfile() {
+    setSelectedWorkerProfile(null);
+    setWorkerIdPhotoUrl(null);
+  }
+
   async function doCsvPreview() {
     try {
       const res = await api.csvPreview(currentFarm, csvText);
@@ -442,6 +515,10 @@ export default function App() {
 
   function logout() {
     clearToken();
+    // Do not leave an ID-photo Blob URL or full private profile in the owner
+    // console state after a session ends.
+    setSelectedWorkerProfile(null);
+    setWorkerIdPhotoUrl(null);
     setTab("login");
     toast("Logged out");
   }
@@ -686,44 +763,151 @@ export default function App() {
         )}
 
         {tab === "workers" && (
-          <div className="card">
-            <h3>Workers — full employment history</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Phone</th>
-                  <th>Status</th>
-                  <th>Verified</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(
-                  workers as Array<{
-                    worker_id: string;
-                    full_name: string;
-                    phone_e164: string | null;
-                    status: string;
-                    verified: boolean;
-                  }>
-                ).map((w) => (
-                  <tr key={w.worker_id}>
-                    <td>{w.full_name}</td>
-                    <td>{w.phone_e164 ?? "-"}</td>
-                    <td>{w.status}</td>
-                    <td>{w.verified ? "✓" : "—"}</td>
+          <div className="card worker-profiles-card">
+            <div className="worker-profiles-heading">
+              <div>
+                <div className="admin-dashboard-kicker" style={{ color: "#b86f36" }}>
+                  Private staff records
+                </div>
+                <h3>Worker profiles</h3>
+                <p className="muted" style={{ margin: 0, maxWidth: 720 }}>
+                  Name and phone remain visible in the field register. National
+                  ID details and optional ID images are private to this signed-in
+                  Admin account and are never included in SMS, exports, or PWA sync.
+                </p>
+              </div>
+              <button className="secondary" onClick={loadDashboard}>
+                Refresh
+              </button>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Worker</th>
+                    <th>Phone</th>
+                    <th>Status</th>
+                    <th>ID record</th>
+                    <th>Photo</th>
+                    <th aria-label="Open profile"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            <p style={{ fontSize: 12, color: "#4A4A42" }}>
-              Hire/fire/rehire on same profile per employment_periods inclusive
-              dates. Phone reuse after inactive with re-verification (Decision
-              17,19).
+                </thead>
+                <tbody>
+                  {workers.map((worker) => (
+                    <tr key={worker.worker_id}>
+                      <td>
+                        <strong>{worker.full_name}</strong>
+                        <div className="worker-profile-subline">
+                          Added {new Date(worker.created_at).toLocaleDateString()}
+                        </div>
+                      </td>
+                      <td>{worker.phone_e164 ?? "—"}</td>
+                      <td>
+                        <span
+                          className={`badge ${worker.status === "active" ? "locked" : "open"}`}
+                        >
+                          {worker.status}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={worker.has_identity ? "identity-on-file" : "identity-missing"}>
+                          {worker.has_identity ? "On file" : "Needs update"}
+                        </span>
+                      </td>
+                      <td>{worker.has_id_photo ? "On file" : "Optional — none"}</td>
+                      <td>
+                        <button
+                          className="secondary worker-profile-open"
+                          onClick={() => openWorkerProfile(worker.worker_id)}
+                          disabled={workerProfileLoading}
+                        >
+                          View profile
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {workers.length === 0 && (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: "center", color: "#6B6B5E" }}>
+                        No workers yet
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p className="worker-profiles-footnote">
+              Existing workers can be completed gradually. Identity details are
+              not a payroll block, and access is recorded in the audit log.
             </p>
-            <button className="secondary" onClick={loadDashboard}>
-              Refresh
-            </button>
+
+            {(workerProfileLoading || selectedWorkerProfile) && (
+              <section className="worker-profile-detail" aria-live="polite">
+                <div className="worker-profile-detail-heading">
+                  <div>
+                    <div className="admin-dashboard-kicker" style={{ color: "#b86f36" }}>
+                      Admin-only identity profile
+                    </div>
+                    <h4>
+                      {workerProfileLoading
+                        ? "Opening private profile…"
+                        : selectedWorkerProfile?.full_name}
+                    </h4>
+                  </div>
+                  {!workerProfileLoading && (
+                    <button className="secondary" onClick={closeWorkerProfile}>
+                      Close profile
+                    </button>
+                  )}
+                </div>
+                {!workerProfileLoading && selectedWorkerProfile && (
+                  <div className="worker-profile-detail-grid">
+                    <dl>
+                      <div>
+                        <dt>Phone number</dt>
+                        <dd>{selectedWorkerProfile.phone_e164 ?? "Not recorded"}</dd>
+                      </div>
+                      <div>
+                        <dt>Employment status</dt>
+                        <dd>{selectedWorkerProfile.status}</dd>
+                      </div>
+                      <div>
+                        <dt>National ID number</dt>
+                        <dd className="identity-value">
+                          {selectedWorkerProfile.national_id_number ?? "Not recorded yet"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Identity consent</dt>
+                        <dd>
+                          {selectedWorkerProfile.identity_consent_at
+                            ? `Recorded ${new Date(selectedWorkerProfile.identity_consent_at).toLocaleString()} by ${selectedWorkerProfile.identity_consent_author ?? "supervisor"}`
+                            : "Not recorded yet"}
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="worker-id-photo-panel">
+                      <div className="worker-id-photo-label">ID card image</div>
+                      {workerIdPhotoUrl ? (
+                        <img
+                          src={workerIdPhotoUrl}
+                          alt={`Private ID document for ${selectedWorkerProfile.full_name}`}
+                        />
+                      ) : selectedWorkerProfile.id_photo ? (
+                        <p className="muted">Loading private image…</p>
+                      ) : (
+                        <p className="muted">No ID image was attached. It is optional.</p>
+                      )}
+                      {selectedWorkerProfile.id_photo && (
+                        <small>
+                          {selectedWorkerProfile.id_photo.content_type} · {Math.ceil(selectedWorkerProfile.id_photo.byte_size / 1024)} KB · recorded {new Date(selectedWorkerProfile.id_photo.captured_at).toLocaleDateString()}
+                        </small>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         )}
 
@@ -1375,6 +1559,7 @@ export default function App() {
               </tbody>
             </table>
             <RateForm farmId={currentFarm} onDone={loadDashboard} />
+            <SupervisorAccessPanel farmId={currentFarm} onDone={loadDashboard} />
           </div>
         )}
 

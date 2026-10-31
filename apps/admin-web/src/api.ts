@@ -23,6 +23,19 @@ export const api = {
   me: () => req("/api/admin/me"),
   farms: () => req("/api/farms"),
   workers: (fid: string) => req(`/api/farms/${fid}/workers`),
+  adminWorkers: (fid: string) => req(`/api/admin/farms/${fid}/workers`),
+  adminWorkerProfile: (fid: string, workerId: string) => req(`/api/admin/farms/${fid}/workers/${workerId}`),
+  adminWorkerIdPhoto: async (fid: string, workerId: string) => {
+    const res = await fetch(`/api/admin/farms/${fid}/workers/${workerId}/id-photo`, {
+      headers: { Authorization: `Bearer ${token() ?? ""}` },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${text}`);
+    }
+    return res.blob();
+  },
   payroll: (fid: string, weekStart: string) => req(`/api/farms/${fid}/payroll/${weekStart}`),
   payrollWeeks: (fid: string) => req(`/api/farms/${fid}/payroll`),
   payrollCsv: (fid: string, weekStart: string) => fetch(`/api/farms/${fid}/payroll/${weekStart}?format=csv`, { headers: { Authorization: `Bearer ${token() ?? ""}` } }).then(r => r.text()),
@@ -38,6 +51,17 @@ export const api = {
   activeIdle: (fid: string, month: string) => req(`/api/farms/${fid}/reports/active-idle?month=${month}`),
   hardest: (fid: string, quarter: string) => req(`/api/farms/${fid}/reports/hardest-working?quarter=${quarter}`),
   auditLog: (fid: string) => req(`/api/farms/${fid}/audit-log`),
+  supervisors: (fid: string) => req(`/api/admin/farms/${fid}/supervisors`),
+  createSupervisor: (fid: string, username: string, password: string) =>
+    req(`/api/admin/farms/${fid}/supervisors`, {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+  resetSupervisorPassword: (fid: string, userId: string, password: string) =>
+    req(`/api/admin/farms/${fid}/supervisors/${userId}/reset-password`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
   csvPreview: (fid: string, csv: string) => req(`/api/farms/${fid}/csv-import/preview`, { method: "POST", body: JSON.stringify({ csv }) }),
   csvCommit: (fid: string, csv: string) => req(`/api/farms/${fid}/csv-import/commit`, { method: "POST", body: JSON.stringify({ csv }) }),
 };

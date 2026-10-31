@@ -8,3 +8,4 @@ export * from "./events.js";
 export * from "./employment.js";
 export * from "./payroll.js";
 export * from "./kg-register.js";
+export * from "./identity.js";
