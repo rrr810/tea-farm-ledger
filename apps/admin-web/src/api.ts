@@ -24,6 +24,8 @@ export const api = {
   farms: () => req("/api/farms"),
   workers: (fid: string) => req(`/api/farms/${fid}/workers`),
   adminWorkers: (fid: string) => req(`/api/admin/farms/${fid}/workers`),
+  identityStorageSummary: (fid: string) =>
+    req(`/api/admin/farms/${fid}/identity-storage-summary`),
   adminWorkerProfile: (fid: string, workerId: string) => req(`/api/admin/farms/${fid}/workers/${workerId}`),
   adminWorkerIdPhoto: async (fid: string, workerId: string) => {
     const res = await fetch(`/api/admin/farms/${fid}/workers/${workerId}/id-photo`, {

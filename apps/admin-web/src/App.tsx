@@ -3,6 +3,7 @@ import { api, token, setToken, clearToken, farmId, setFarmId } from "./api.js";
 import { resolveFarmSelection } from "./farmSelection.js";
 import { currentWeekStartEAT } from "./week.js";
 import { SupervisorAccessPanel } from "./SupervisorAccessPanel.js";
+import { IdentitySafetyPanel } from "./IdentitySafetyPanel.js";
 
 type Tab =
   | "login"
@@ -1560,6 +1561,7 @@ export default function App() {
             </table>
             <RateForm farmId={currentFarm} onDone={loadDashboard} />
             <SupervisorAccessPanel farmId={currentFarm} onDone={loadDashboard} />
+            <IdentitySafetyPanel farmId={currentFarm} />
           </div>
         )}
 

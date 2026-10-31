@@ -9,6 +9,7 @@ import {
   listWorkerIdentitySummaries,
   getWorkerIdentityProfile,
   getWorkerIdentityPhoto,
+  getIdentityStorageSummary,
 } from "@tea-ledger/database";
 import type { DbClient } from "@tea-ledger/database";
 
@@ -88,6 +89,16 @@ describe("private worker identity records", () => {
     });
     expect(fetchedPhoto?.contentType).toBe("image/jpeg");
     expect(fetchedPhoto?.bytes.equals(jpeg)).toBe(true);
+
+    const aggregate = await getIdentityStorageSummary(farmId, db);
+    expect(aggregate).toEqual(
+      expect.objectContaining({
+        records: expect.objectContaining({ total: 1, current: 1 }),
+        photos: { total: 1, current: 1, bytesTotal: jpeg.length, bytesCurrent: jpeg.length },
+      }),
+    );
+    expect(JSON.stringify(aggregate)).not.toContain("12345678");
+    expect(JSON.stringify(aggregate)).not.toContain(worker.worker_id);
 
     const stored = await db.query(
       "SELECT national_id_ciphertext FROM worker_identity_records WHERE identity_id=$1",

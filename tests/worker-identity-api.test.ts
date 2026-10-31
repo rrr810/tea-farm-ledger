@@ -134,7 +134,44 @@ describe("worker identity HTTP boundary", () => {
     expect(profile.statusCode).toBe(200);
     expect(profile.json().worker.national_id_number).toBe("87654321");
 
+    const unauthenticatedSummary = await app.inject({
+      method: "GET",
+      url: `/api/admin/farms/${farmId}/identity-storage-summary`,
+    });
+    expect(unauthenticatedSummary.statusCode).toBe(401);
+
+    const aggregateSummary = await app.inject({
+      method: "GET",
+      url: `/api/admin/farms/${farmId}/identity-storage-summary`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(aggregateSummary.statusCode).toBe(200);
+    expect(aggregateSummary.body).not.toContain("87654321");
+    expect(aggregateSummary.body).not.toContain(created.worker_id);
+    expect(aggregateSummary.json().summary).toEqual(
+      expect.objectContaining({
+        records: expect.objectContaining({ total: 1, current: 1 }),
+        photos: expect.objectContaining({ total: 0, current: 0, bytesTotal: 0 }),
+      }),
+    );
+
     const db = await getDb();
+    const reportAudit = await db.query(
+      `SELECT actor, target, detail FROM audit_log
+        WHERE farm_id=$1 AND action='worker.identity.storage_summary_viewed'
+        ORDER BY id DESC LIMIT 1`,
+      [farmId],
+    );
+    const reportAuditRow = reportAudit.rows[0] as {
+      actor: string;
+      target: string | null;
+      detail: unknown;
+    };
+    expect(reportAuditRow.actor).toBe(username);
+    expect(reportAuditRow.target).toBeNull();
+    expect(reportAuditRow.detail).toEqual({ aggregate_only: true });
+    expect(JSON.stringify(reportAuditRow)).not.toContain(created.worker_id);
+
     const audit = await db.query(
       "SELECT action, actor, detail FROM audit_log WHERE farm_id=$1 AND target=$2 ORDER BY id ASC",
       [farmId, created.worker_id],

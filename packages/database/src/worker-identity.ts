@@ -369,6 +369,99 @@ export async function getWorkerIdentityProfile(opts: {
   };
 }
 
+export type IdentityStorageSummary = {
+  records: {
+    total: number;
+    current: number;
+    firstRecordedAt: string | Date | null;
+    lastRecordedAt: string | Date | null;
+    byRecordedDate: Array<{ recorded_date: string; record_count: number }>;
+  };
+  photos: {
+    total: number;
+    current: number;
+    bytesTotal: number;
+    bytesCurrent: number;
+  };
+};
+
+/**
+ * Returns Admin-safe aggregate metadata only. It never selects a national ID,
+ * lookup hash, worker identifier, author, ciphertext, image, or document hash.
+ * This supports the exposure review and storage monitoring without revealing
+ * private identity values.
+ */
+export async function getIdentityStorageSummary(
+  farmId: string,
+  dbClient?: DbClient,
+): Promise<IdentityStorageSummary> {
+  const db = dbClient ?? (await getDb());
+  const [recordsResult, photosResult, dailyResult] = await Promise.all([
+    db.query(
+      `SELECT COUNT(*) AS total_records,
+              COALESCE(SUM(CASE WHEN superseded_at IS NULL THEN 1 ELSE 0 END), 0) AS current_records,
+              MIN(recorded_at) AS first_recorded_at,
+              MAX(recorded_at) AS last_recorded_at
+         FROM worker_identity_records
+        WHERE farm_id=$1`,
+      [farmId],
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total_photos,
+              COALESCE(SUM(CASE WHEN superseded_at IS NULL THEN 1 ELSE 0 END), 0) AS current_photos,
+              COALESCE(SUM(byte_size), 0) AS bytes_total,
+              COALESCE(SUM(CASE WHEN superseded_at IS NULL THEN byte_size ELSE 0 END), 0) AS bytes_current
+         FROM worker_identity_documents
+        WHERE farm_id=$1 AND document_type='national_id_photo'`,
+      [farmId],
+    ),
+    db.query(
+      `SELECT to_char(recorded_at AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD') AS recorded_date,
+              COUNT(*) AS record_count
+         FROM worker_identity_records
+        WHERE farm_id=$1
+        GROUP BY recorded_date
+        ORDER BY recorded_date ASC`,
+      [farmId],
+    ),
+  ]);
+
+  const records = (recordsResult.rows as Array<{
+    total_records: string | number;
+    current_records: string | number;
+    first_recorded_at: string | Date | null;
+    last_recorded_at: string | Date | null;
+  }>)[0];
+  const photos = (photosResult.rows as Array<{
+    total_photos: string | number;
+    current_photos: string | number;
+    bytes_total: string | number;
+    bytes_current: string | number;
+  }>)[0];
+
+  return {
+    records: {
+      total: Number(records?.total_records ?? 0),
+      current: Number(records?.current_records ?? 0),
+      firstRecordedAt: records?.first_recorded_at ?? null,
+      lastRecordedAt: records?.last_recorded_at ?? null,
+      byRecordedDate: (dailyResult.rows as Array<{
+        recorded_date: string;
+        record_count: string | number;
+      }>).map((row) => ({
+        recorded_date: row.recorded_date,
+        record_count: Number(row.record_count),
+      })),
+    },
+    photos: {
+      total: Number(photos?.total_photos ?? 0),
+      current: Number(photos?.current_photos ?? 0),
+      bytesTotal: Number(photos?.bytes_total ?? 0),
+      bytesCurrent: Number(photos?.bytes_current ?? 0),
+    },
+  };
+}
+
 export async function getWorkerIdentityPhoto(opts: {
   farmId: string;
   workerId: string;

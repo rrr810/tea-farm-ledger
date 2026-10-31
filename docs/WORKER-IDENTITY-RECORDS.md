@@ -45,10 +45,22 @@ image view writes an audit-log entry.
   online. They are never written to the PWA IndexedDB database, sync outbox,
   event history, SMS messages, CSV exports, public worker responses, or audit
   details.
-- The server allows only JPEG, PNG, and WebP image bytes, checks their file
-  signature, and limits the decoded image to 1.25 MB.
+- The PWA aims for a 900 KB image; the server allows only JPEG, PNG, and WebP
+  bytes, checks their file signature, and rejects decoded images above 1.25 MB.
+  Base64 transfer text is never stored—only the decoded encrypted bytes, IV,
+  and authentication tag are retained.
+- Images are encrypted `BYTEA` rows in PostgreSQL, not Supabase Storage bucket
+  objects. At the 900 KB target, 100 current images use roughly 90 MB of
+  database data; at the 1.25 MB hard maximum, 400 images alone would approach
+  500 MB before normal Tea Ledger data and database overhead. The Admin
+  Settings report shows aggregate current/retained encrypted photo *payload*
+  bytes without exposing identity values. It excludes PostgreSQL row, index, IV,
+  and authentication-tag overhead, so treat it as a lower-bound monitoring
+  figure rather than a full database-disk reading. Monitor the actual Supabase
+  database quota before scale-up.
 - Corrections are designed to retain history through superseded records; no
-  identity document is silently deleted.
+  identity document is silently deleted, so repeated replacements increase
+  retained database usage until an approved retention policy is introduced.
 
 ## Explicit non-goals
 

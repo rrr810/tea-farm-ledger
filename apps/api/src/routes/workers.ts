@@ -14,6 +14,7 @@ import {
   listWorkerIdentitySummaries,
   getWorkerIdentityProfile,
   getWorkerIdentityPhoto,
+  getIdentityStorageSummary,
 } from "@tea-ledger/database";
 import { normalizeNationalIdNumber, validateWorkerName } from "@tea-ledger/core";
 import { requireAdminForFarm } from "../admin-auth.js";
@@ -264,6 +265,29 @@ export async function workersRoutes(app: FastifyInstance) {
     if (!admin) return;
     const workers = await listWorkerIdentitySummaries(farmId);
     return { workers };
+  });
+
+  // Aggregate-only storage and incident-review metadata. This response never
+  // includes worker names/IDs, national ID values, hashes, ciphertext, photos,
+  // or image hashes.
+  app.get("/api/admin/farms/:farmId/identity-storage-summary", async (req, reply) => {
+    const { farmId } = req.params as { farmId: string };
+    const admin = await requireAdminForFarm(req, reply, farmId);
+    if (!admin) return;
+    const summary = await getIdentityStorageSummary(farmId);
+    const db = await getDb();
+    await db.query(
+      `INSERT INTO audit_log (farm_id, actor, action, target, detail)
+       VALUES ($1,$2,$3,$4,$5::jsonb)`,
+      [
+        farmId,
+        admin.username,
+        "worker.identity.storage_summary_viewed",
+        null,
+        JSON.stringify({ aggregate_only: true }),
+      ],
+    );
+    return { summary };
   });
 
   app.get("/api/admin/farms/:farmId/workers/:workerId", async (req, reply) => {
