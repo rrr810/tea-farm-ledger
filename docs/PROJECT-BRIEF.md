@@ -89,17 +89,24 @@ Permissions for hiring/firing [TO CONFIRM]: default = Supervisor can enter hire/
 
 ### 4.7 SMS (Africa's Talking)
 Use Africa's Talking SMS API with a registered Sender ID (configurable) and sandbox mode for development; default to a mock adapter. Store every SMS with status from delivery-report callbacks. Log segments and estimated cost per farm per month.
-Cost rules: GSM-7 characters ONLY (no emojis, curly quotes or accents), since Unicode drops segments to 70 characters. Single SMS = 160 chars; concatenated segments = 153 chars each. Cap the daily Owner SMS at 3 segments: if per-worker lines would exceed that, send totals plus the highest-kg lines and "+N more, see weekly".
+Cost rules: GSM-7 characters ONLY (no emojis, curly quotes or accents), since Unicode drops segments to 70 characters. Single SMS = 160 chars; concatenated segments = 153 chars each. Cap the daily Owner SMS at 3 segments. The Owner requested every picker be retained in the message, so if real full names would exceed 3 parts, do not silently omit workers or spend a fourth unit: hold the full preview for explicit review.
 Templates (English default, Kiswahili variants in a translation file):
 1. DAILY to Owner, after the day is confirmed:
-   TEA Mon 19Oct
-   Total 612kg 14 pickers
-   Peter 52
-   Jane 45
-   Mary 38
-   ...
-   +N more, see weekly
-   Rate 9 Est KES 5508
+   Dear Peter Rugut,
+
+   TEA FARM LEDGER
+   Mon 19 Oct DAILY SUMMARY
+   Rate: KES 9/kg
+
+   NAME | KG | EST KES
+   Jane | 45 | 405
+   Peter | 52 | 468
+   ...every recorded picker...
+   --------------------
+   TOTAL | 612 | 5,508
+
+   Thank you.
+   The rate applies to every row; the per-worker and total amounts are estimates only until the server receives the complete Saturday record.
 2. FRIDAY ESTIMATE to Owner:
    TEA Fri 23Oct week so far 3980kg. Est pay KES 35820 (Mon-Fri). Sat adds more. Keep balance ready.
 3. VERIFICATION to worker:

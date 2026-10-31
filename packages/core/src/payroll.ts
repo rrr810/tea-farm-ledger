@@ -21,6 +21,8 @@ export type PluckEntry = {
   businessDate: string;
   kgUnits: number | null; // null if absent, 0 if present with zero
   present: boolean;
+  /** Set by persistence when a same-worker/day entry requires explicit review. */
+  conflictFlag?: boolean;
 };
 
 export type WorkerInfo = {
@@ -319,43 +321,116 @@ export function payrollToCsv(sheet: PayrollSheet): string {
   return [header, ...rows, totalRow].join("\n");
 }
 
+function escapePrintableHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatPrintableKg(kgUnits: number): string {
+  const sign = kgUnits < 0 ? "-" : "";
+  const absolute = Math.abs(Math.trunc(kgUnits));
+  return `${sign}${Math.trunc(absolute / 10)}.${absolute % 10}`;
+}
+
+function formatPrintableRate(centsPerKg: number): string {
+  const sign = centsPerKg < 0 ? "-" : "";
+  const absolute = Math.abs(Math.trunc(centsPerKg));
+  return `${sign}${Math.trunc(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
+}
+
+function printableFarmInitials(farmName: string): string {
+  const initials = farmName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  return initials || "TL";
+}
+
+/**
+ * A self-contained estate-quality payroll hard copy. It keeps the calculations
+ * from the shared core untouched; presentation only formats stored integer
+ * tenths/cents and gives the owner a clear Print → Save as PDF record.
+ */
 export function payrollToPrintableHtml(sheet: PayrollSheet, farmName: string): string {
+  const safeFarmName = escapePrintableHtml(farmName);
+  const rateBands = (line: PayrollLine) =>
+    line.rateBands.length > 1
+      ? `<small class="rate-bands">${line.rateBands
+          .map((band) => `${formatPrintableKg(band.kgUnits)} kg @ KES ${formatPrintableRate(band.rateCentsPerKg)}`)
+          .map(escapePrintableHtml)
+          .join(" · ")}</small>`
+      : "";
   const rows = sheet.lines
     .map(
-      (l) => `
-    <tr>
-      <td>${l.name}</td>
-      <td>${l.maskedPhone}</td>
-      <td style="text-align:center">${l.daysWorked}/${l.attendanceDenominator}</td>
-      <td style="text-align:right">${l.totalKg.toFixed(1)}</td>
-      <td style="text-align:right">${(l.rateCentsPerKg / 100).toFixed(2)}${l.rateBands.length > 1 ? ` (${l.rateBands.map((b) => `${(b.kgUnits / 10).toFixed(1)}kg@${(b.rateCentsPerKg / 100).toFixed(0)}`).join(", ")})` : ""}</td>
-      <td style="text-align:right"><strong>${l.amountKes.toLocaleString()}</strong>${l.adjustments.length ? ` <span style="color:#6a5">+${l.adjustmentAmountKes} adj</span>` : ""}</td>
-      <td style="font-size:11px">${l.flags.join("; ") || ""}</td>
-    </tr>`,
+      (line, index) => `
+        <tr class="${index % 2 ? "stripe" : ""}">
+          <td class="worker"><span class="row-no">${index + 1}</span>${escapePrintableHtml(line.name)}<small>${escapePrintableHtml(line.maskedPhone)}</small></td>
+          <td class="center">${line.daysWorked}/${line.attendanceDenominator}</td>
+          <td class="numeric">${formatPrintableKg(line.totalKgUnits)}</td>
+          <td class="numeric">KES ${formatPrintableRate(line.rateCentsPerKg)}${rateBands(line)}</td>
+          <td class="numeric amount">KES ${line.amountKes.toLocaleString()}${line.adjustments.length ? `<small>incl. adjustment KES ${line.adjustmentAmountKes.toLocaleString()}</small>` : ""}</td>
+          <td class="flags">${line.flags.length ? line.flags.map((flag) => `<span>${escapePrintableHtml(flag)}</span>`).join("") : "—"}</td>
+        </tr>`,
     )
     .join("");
+  const statusCopy = sheet.status === "locked" ? "Final locked record" : sheet.status === "incomplete" ? "Incomplete — review before finalising" : "Live estimate";
+  const lockedAt = sheet.lockedAt ? ` · locked ${escapePrintableHtml(sheet.lockedAt)}` : "";
+  const initials = printableFarmInitials(farmName);
+  const farmCode = escapePrintableHtml(sheet.farmId.slice(0, 8).toUpperCase());
+  const generatedAt = escapePrintableHtml(new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi" }));
+
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Payroll ${sheet.weekStart} – ${farmName}</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Payroll Sheet ${escapePrintableHtml(sheet.weekStart)} — ${safeFarmName}</title>
 <style>
-  @media print { .no-print { display:none } body { font-size:12px } }
-  body { font-family: system-ui, Arial, sans-serif; margin:24px; color:#111 }
-  h1 { font-size:20px; margin:0 0 4px } h2 { font-size:14px; color:#555; margin:0 0 12px }
-  table { width:100%; border-collapse:collapse; margin-top:12px }
-  th { background:#1B4332; color:white; padding:8px; text-align:left; font-size:12px }
-  td { padding:6px 8px; border-bottom:1px solid #ddd; font-size:12px }
-  tfoot td { font-weight:800; background:#f5f5f0; border-top:2px solid #1B4332 }
-  .badge { padding:2px 6px; border-radius:10px; font-size:11px; background:#eee }
-  .locked { background:#e8f5e9; border:1px solid #a5d6a7; padding:6px 10px; border-radius:8px; display:inline-block }
-  .open { background:#fff3e0; border:1px solid #ffcc80; padding:6px 10px; border-radius:8px; display:inline-block }
-</style></head><body>
-<h1>Tea Farm Ledger — Payroll Sheet</h1>
-<h2>${farmName} · Week ${sheet.weekStart} to ${sheet.weekEnd} · <span class="${sheet.status === "locked" ? "locked" : "open"}">${sheet.status.toUpperCase()}${sheet.lockedAt ? " at " + new Date(sheet.lockedAt).toLocaleString() : ""}</span></h2>
-<p style="font-size:12px;color:#555">Rate ${sheet.lines[0] ? (sheet.lines[0].rateCentsPerKg / 100).toFixed(2) : "9.00"} KES/kg (weighted if changed mid-week). Grand total is sum of rounded worker amounts. Use browser Print → Save as PDF.</p>
-<table><thead><tr><th>Worker</th><th>Phone</th><th>Days</th><th style="text-align:right">Total kg</th><th style="text-align:right">Rate (weighted)</th><th style="text-align:right">Amount KES</th><th>Flags</th></tr></thead>
-<tbody>${rows || `<tr><td colspan="7" style="text-align:center;color:#777">No active workers this week</td></tr>`}</tbody>
-<tfoot><tr><td colspan="2">TOTALS · ${sheet.totals.pickerCount} pickers</td><td></td><td style="text-align:right">${sheet.totals.totalKg.toFixed(1)}</td><td></td><td style="text-align:right">KES ${sheet.totals.totalAmountKes.toLocaleString()}</td><td>${sheet.totals.adjustmentsTotalCents ? `incl. adjustments KES ${Math.round(sheet.totals.adjustmentsTotalCents / 100)}` : ""}</td></tr></tfoot></table>
-<p style="font-size:11px;color:#777;margin-top:12px">Generated ${new Date().toLocaleString()} Africa/Nairobi · Append-only audit trail · Pay calculation: sum(kg × rate/date) → round half-up once per worker/week · CSV export available.</p>
-<button class="no-print" onclick="window.print()" style="margin-top:12px;padding:10px 16px;background:#1B4332;color:white;border:0;border-radius:8;cursor:pointer">Print / Save as PDF</button>
-<a class="no-print" href="?format=csv" style="margin-left:10px;font-size:13px">Download CSV</a>
-</body></html>`;
+  :root { --forest:#153d2b; --tea:#2c6a45; --copper:#bb743d; --ink:#1d2921; --paper:#fffdf7; --mist:#f1eee4; --line:#d9d2c0; --muted:#617066; }
+  * { box-sizing:border-box; }
+  @page { size:A4 landscape; margin:11mm; }
+  body { margin:0; color:var(--ink); background:var(--paper); font-family:"Aptos", "Segoe UI", Arial, sans-serif; font-size:11px; }
+  .sheet { max-width:1120px; margin:0 auto; }
+  .masthead { display:grid; grid-template-columns:58px 1fr auto; gap:14px; align-items:center; border-top:8px solid var(--forest); padding:16px 0 13px; border-bottom:1px solid var(--line); }
+  .crest { width:52px; height:52px; border-radius:50%; display:grid; place-items:center; color:#fff; background:var(--forest); border:3px solid #d9b47d; font:700 17px Georgia, serif; letter-spacing:.8px; box-shadow:inset 0 0 0 2px #224f39; }
+  .eyebrow { color:var(--copper); font-weight:800; letter-spacing:1.55px; text-transform:uppercase; font-size:9px; margin-bottom:3px; }
+  h1 { margin:0; font:700 24px Georgia, "Times New Roman", serif; letter-spacing:.1px; color:var(--forest); }
+  .subtitle { margin:4px 0 0; color:var(--muted); font-size:11px; }
+  .record-chip { align-self:start; text-align:right; font-size:9px; color:var(--muted); line-height:1.5; }
+  .record-chip strong { display:block; color:var(--forest); letter-spacing:.8px; font-size:10px; text-transform:uppercase; }
+  .summary { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; border:1px solid var(--line); margin:15px 0 12px; background:#faf8f1; }
+  .summary div { padding:9px 12px; border-right:1px solid var(--line); }
+  .summary div:last-child { border-right:0; }
+  .summary small { display:block; font-size:8px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); font-weight:700; margin-bottom:2px; }
+  .summary strong { color:var(--forest); font:700 15px Georgia, serif; }
+  .notice { margin:0 0 11px; padding:8px 10px; border-left:4px solid var(--copper); color:#5e5144; background:#faf5ea; line-height:1.35; }
+  table { border-collapse:collapse; width:100%; table-layout:fixed; border:1px solid var(--line); }
+  th { background:var(--forest); color:#fff; padding:8px 6px; text-align:left; font-size:9px; letter-spacing:.25px; }
+  th:first-child { width:25%; padding-left:11px; } th:nth-child(2) { width:10%; text-align:center; } th:nth-child(3) { width:11%; text-align:right; } th:nth-child(4) { width:18%; text-align:right; } th:nth-child(5) { width:18%; text-align:right; } th:last-child { width:18%; background:#0e3021; }
+  td { border-top:1px solid var(--line); padding:7px 6px; vertical-align:middle; font-variant-numeric:tabular-nums; }
+  tbody tr.stripe { background:#fbfaf5; }
+  td.worker { font-weight:650; padding-left:10px; } td.worker small { display:block; padding-left:22px; margin-top:2px; color:#6f776f; font-size:8px; font-weight:500; }
+  .row-no { color:var(--copper); display:inline-block; width:22px; font-size:9px; font-weight:800; }
+  .center { text-align:center; } .numeric { text-align:right; white-space:nowrap; } .amount { font-weight:800; color:var(--forest); } .numeric small { display:block; color:#687369; font-size:8px; font-weight:500; margin-top:2px; white-space:normal; }
+  .rate-bands { display:block; color:#687369; font-size:8px; font-weight:500; line-height:1.35; margin-top:2px; white-space:normal; }
+  .flags { font-size:8px; color:#5e5548; line-height:1.3; } .flags span { display:block; margin-bottom:2px; }
+  tfoot td { background:#e7ede5; border-top:2px solid var(--forest); color:var(--forest); font-weight:800; } tfoot td:first-child { padding-left:10px; font-size:9px; letter-spacing:.45px; text-transform:uppercase; }
+  .note { margin:10px 0 15px; color:var(--muted); font-size:9px; line-height:1.55; } .note b { color:var(--forest); }
+  .signatures { display:grid; grid-template-columns:1fr 1fr; gap:44px; margin:24px 24px 0; } .signature { border-top:1px solid #797970; padding-top:5px; color:#5e655d; font-size:9px; }
+  footer { border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:12px; margin-top:16px; padding-top:8px; color:var(--muted); font-size:8px; }
+  button { border:0; cursor:pointer; background:var(--forest); color:#fff; padding:9px 12px; border-radius:4px; font-weight:700; } .print-tools { margin:14px 0; display:flex; gap:10px; align-items:center; } .print-tools a { color:var(--forest); font-weight:700; font-size:11px; }
+  @media print { body { background:#fff; } .no-print { display:none !important; } .sheet { max-width:none; } }
+</style></head><body><main class="sheet">
+<header class="masthead"><div class="crest">${escapePrintableHtml(initials)}</div><div><div class="eyebrow">Tea Ledger · Estate Payroll Record</div><h1>Payroll Sheet</h1><p class="subtitle">${safeFarmName} · Week ${escapePrintableHtml(sheet.weekStart)} to ${escapePrintableHtml(sheet.weekEnd)}</p></div><div class="record-chip"><strong>${escapePrintableHtml(statusCopy)}</strong>Farm record ${farmCode}${lockedAt}</div></header>
+<section class="summary"><div><small>Farm kilograms</small><strong>${formatPrintableKg(sheet.totals.totalKgUnits)} kg</strong></div><div><small>Payroll total</small><strong>KES ${sheet.totals.totalAmountKes.toLocaleString()}</strong></div><div><small>Workers counted</small><strong>${sheet.totals.pickerCount}</strong></div><div><small>Week status</small><strong>${escapePrintableHtml(sheet.status.toUpperCase())}</strong></div></section>
+<div class="notice"><strong>Payroll basis.</strong> Each worker’s pay uses the rate in force on each recorded date, then rounds half-up once for that worker. The farm payroll total is the sum of those worker amounts. ${sheet.status === "locked" ? "This is the locked historical record." : "This is a live estimate until server completion controls final payroll."}</div>
+<table aria-label="Payroll Sheet"><thead><tr><th>Worker</th><th>Days</th><th>Total kg</th><th>Rate / kg</th><th>Amount</th><th>Checks</th></tr></thead><tbody>${rows || `<tr><td colspan="6" style="color:#697269;padding:24px;text-align:center">No active workers in this farm record for this week.</td></tr>`}</tbody><tfoot><tr><td colspan="2">Payroll totals · ${sheet.totals.pickerCount} pickers</td><td class="numeric">${formatPrintableKg(sheet.totals.totalKgUnits)}</td><td></td><td class="numeric">KES ${sheet.totals.totalAmountKes.toLocaleString()}</td><td>${sheet.totals.adjustmentsTotalCents ? `includes adjustments KES ${Math.round(sheet.totals.adjustmentsTotalCents / 100).toLocaleString()}` : ""}</td></tr></tfoot></table>
+<p class="note"><b>Record note:</b> weights are stored in 0.1 kg units; any worker checks are displayed above for review. This printable report does not create a payment or alter the append-only farm history.</p>
+<div class="signatures"><div class="signature">Supervisor signature &amp; date</div><div class="signature">Owner / manager signature &amp; date</div></div>
+<footer><span>Generated ${generatedAt} · Africa/Nairobi</span><span>Tea Ledger · Server-authoritative farm record · Print landscape / Save as PDF</span></footer>
+<div class="print-tools no-print"><button onclick="window.print()">Print / Save as PDF</button><a href="?format=csv">Download CSV</a></div>
+</main></body></html>`;
 }

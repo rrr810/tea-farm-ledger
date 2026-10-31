@@ -8,9 +8,16 @@ export function isGsm7(text: string): boolean {
   }
   return true;
 }
+// GSM-7 extension-table symbols consume two septets even though they are one
+// JavaScript character. Count them correctly so the unit/cost guard is honest.
+const GSM7_EXTENSION_CHARS = new Set(["^", "{", "}", "\\", "[", "~", "]", "|"]);
+function gsm7SeptetLength(text: string): number {
+  return [...text].reduce((total, char) => total + (GSM7_EXTENSION_CHARS.has(char) ? 2 : 1), 0);
+}
 export function countSegments(text: string): number {
-  if (text.length <= 160) return 1;
-  return Math.ceil(text.length / 153);
+  const length = isGsm7(text) ? gsm7SeptetLength(text) : text.length;
+  if (length <= 160) return 1;
+  return Math.ceil(length / 153);
 }
 export function fitsInSegments(text: string, maxSegments: number): boolean {
   return countSegments(text) <= maxSegments;
@@ -36,27 +43,132 @@ export function buildWeeklyReceiptSms(opts: {
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
 export function buildDailySms(opts: {
+  /** Display name for the farm owner. The scheduler supplies Peter Rugut for this farm. */
+  ownerName?: string;
   dateLabel: string;
   totalKgUnits: number;
   pickerCount: number;
+  /** One entry for every picker recorded for the day. */
   lines: Array<{ name: string; kgUnits: number }>;
   rateCentsPerKg: number;
   totalPayEstimateKes?: number;
-  maxLinesBeforeMore?: number;
 }): { body: string; segments: number; gsm7: boolean } {
   const totalKg = (opts.totalKgUnits / 10).toString();
   const rateKes = (opts.rateCentsPerKg / 100).toString();
-  const header = `TEA ${opts.dateLabel}\nTotal ${totalKg}kg ${opts.pickerCount} pickers`;
-  const linesToShow = opts.maxLinesBeforeMore ?? 5;
-  const sorted = [...opts.lines].sort((a, b) => b.kgUnits - a.kgUnits);
-  const visible = sorted.slice(0, linesToShow);
-  const hidden = sorted.length - visible.length;
-  const lineStr = visible.map((l) => `${l.name} ${(l.kgUnits / 10).toString()}`).join("\n");
-  const moreStr = hidden > 0 ? `\n+${hidden} more, see weekly` : "";
-  const estStr = opts.totalPayEstimateKes !== undefined ? `\nRate ${rateKes} Est KES ${opts.totalPayEstimateKes}` : `\nRate ${rateKes}`;
-  const body = `${header}\n${lineStr}${moreStr}${estStr}`;
+  const ownerName = opts.ownerName?.trim() || "Farm Owner";
+  const formatKes = (amount: number) => Math.round(amount).toLocaleString("en-KE");
+  const estimateLinePayKes = (kgUnits: number) => Math.round((kgUnits * opts.rateCentsPerKg) / 1000);
+  const estimatedTotalKes = opts.totalPayEstimateKes ?? estimateLinePayKes(opts.totalKgUnits);
+
+  // Alphabetical order is stable and lets Peter find each worker quickly. The rate is
+  // shown once because it applies to every row; repeating it per worker wastes parts.
+  const rows = [...opts.lines]
+    .sort((a, b) => a.name.localeCompare(b.name, "en"))
+    // Use hyphens, not pipes: | is GSM-7 extension-table text and costs an
+    // extra septet per occurrence. The compact table is friendlier to the budget.
+    .map((line) => `${line.name} - ${(line.kgUnits / 10).toString()} - ${formatKes(estimateLinePayKes(line.kgUnits))}`);
+
+  const body = [
+    `Dear ${ownerName},`,
+    "",
+    "TEA FARM LEDGER",
+    `${opts.dateLabel} DAILY SUMMARY`,
+    `Rate: KES ${rateKes}/kg`,
+    "",
+    "NAME - KG - EST KES",
+    ...rows,
+    "--------------------",
+    `TOTAL - ${totalKg} - ${formatKes(estimatedTotalKes)}`,
+    "",
+    "Thank you.",
+  ].join("\n");
+
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
+function compactSmsText(value: string, maxLength: number): string {
+  // Daily notifications are deliberately GSM-7/ASCII so a pasted emoji, curly
+  // quote, or long no-plucking reason does not silently increase the SMS bill.
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength)
+    .trim();
+}
+
+function kgText(kgUnits: number): string {
+  return (kgUnits / 10).toFixed(1);
+}
+
+/** Use the picker's first saved name for a warm, compact one-part receipt. */
+function pickerGreetingName(value: string): string {
+  return compactSmsText(value, 30).split(" ")[0] || "Picker";
+}
+
+/** A concise, personal daily kg/pay notification for a consented picker. */
+export function buildDailyWorkerSms(opts: {
+  workerName: string;
+  dateLabel: string;
+  kgUnits: number;
+  amountKes: number;
+}): { body: string; segments: number; gsm7: boolean } {
+  const body = `Dear ${pickerGreetingName(opts.workerName)}, your tea record for ${compactSmsText(opts.dateLabel, 18)} is ${kgText(opts.kgUnits)}kg. Estimated pay: KES ${Math.round(opts.amountKes)}.`;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
+/** Transparent personal status when a consented picker has no payable entry. */
+export function buildDailyAbsentSms(opts: {
+  workerName: string;
+  dateLabel: string;
+}): { body: string; segments: number; gsm7: boolean } {
+  const body = `Dear ${pickerGreetingName(opts.workerName)}, your tea record for ${compactSmsText(opts.dateLabel, 18)} has no kg or pay recorded today.`;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
+/**
+ * Owner/Peter daily summary designed to fit one GSM-7 part for the current small
+ * farm while still naming every recorded picker. The actual segment count is
+ * returned and stored; more workers may naturally require more than one part.
+ */
+export function buildCompactDailyOwnerSms(opts: {
+  dateLabel: string;
+  totalKgUnits: number;
+  pickerCount: number;
+  totalPayEstimateKes: number;
+  lines: Array<{ name: string; kgUnits: number; amountKes: number }>;
+}): { body: string; segments: number; gsm7: boolean } {
+  const rows = [...opts.lines]
+    .sort((a, b) => a.name.localeCompare(b.name, "en"))
+    .map((line) => `${compactSmsText(line.name, 22)} ${kgText(line.kgUnits)}kg/KES${Math.round(line.amountKes)}`)
+    .join("; ");
+  const summary = `Tea Ledger ${compactSmsText(opts.dateLabel, 18)}: ${opts.pickerCount} pickers, ${kgText(opts.totalKgUnits)}kg, estimated KES${Math.round(opts.totalPayEstimateKes)}.`;
+  const body = rows ? `${summary} ${rows}.` : summary;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
+/** Compact no-plucking summary for the owner/test recipient. */
+export function buildDailyNoPluckingSms(opts: {
+  dateLabel: string;
+  reason: string;
+}): { body: string; segments: number; gsm7: boolean } {
+  const reason = compactSmsText(opts.reason, 72) || "not recorded";
+  const body = `Tea Ledger ${compactSmsText(opts.dateLabel, 18)}: no plucking today. Reason: ${reason}.`;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
+/** Personal no-plucking notice for each consented picker. */
+export function buildDailyWorkerNoPluckingSms(opts: {
+  workerName: string;
+  dateLabel: string;
+  reason: string;
+}): { body: string; segments: number; gsm7: boolean } {
+  const reason = compactSmsText(opts.reason, 72) || "not recorded";
+  const body = `Dear ${pickerGreetingName(opts.workerName)}, no plucking on ${compactSmsText(opts.dateLabel, 18)}. Reason: ${reason}.`;
+  return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+}
+
 export function buildFridayEstimateSms(opts: {
   dateLabel: string;
   totalKgUnits: number;

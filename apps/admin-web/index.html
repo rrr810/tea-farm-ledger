@@ -22,6 +22,15 @@
   button.primary{background:#1B4332;color:white;border:0;padding:10px 16px;border-radius:8px;font-weight:700;cursor:pointer}
   button.secondary{background:white;color:#1B4332;border:1px solid #1B4332;padding:8px 12px;border-radius:8px;cursor:pointer}
   .flag{font-size:11px;color:#C62828;background:#FDEDEC;padding:2px 6px;border-radius:8px}
+  .dashboard-week-section{margin-top:22px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+  .week-pay-card{border:1px solid #D9E5D9;border-radius:12px;padding:14px;background:#FCFEFC;min-width:0}
+  .week-pay-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .week-pay-heading h3{margin:0;font-size:16px;color:#1B4332}.week-pay-heading p{margin:4px 0 0}
+  .muted{font-size:12px;color:#5B655B}.pill{background:#E8F5E9;color:#26703B;border:1px solid #A5D6A7;border-radius:999px;padding:3px 7px;font-size:10px;font-weight:800;letter-spacing:.5px}
+  .week-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}.week-totals div{background:#F1F7F1;border-radius:8px;padding:8px}.week-totals span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.35px;color:#596559}.week-totals strong{display:block;margin-top:3px;font-size:14px;color:#173B29}
+  .table-wrap{overflow-x:auto}.week-pay-table{min-width:500px}.week-pay-table th,.week-pay-table td{padding:7px 6px}.empty-copy{margin:16px 0 4px}
+  .dashboard-week-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:20px}.dashboard-week-toolbar h4{margin:0}
+  @media(max-width:780px){.dashboard-week-section{grid-template-columns:1fr}.week-totals{grid-template-columns:repeat(3,minmax(0,1fr))}.week-totals strong{font-size:12px}}
 </style>
 </head>
 <body>

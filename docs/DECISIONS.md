@@ -50,5 +50,12 @@ These are our interpretations for unspecified points. Ryan's authoritative decis
 - **Why:** Vercel sets `NODE_ENV=production` on every deployment — including staging/preview demos — so the old `NODE_ENV || VERCEL_ENV` check refused PGlite everywhere and the README's demo path could never work. `VERCEL_ENV` is Vercel's accurate environment signal.
 - **Where:** `packages/database/src/db.ts#isProduction`.
 
+## J11 — Private worker identity records
+- **Choice:** The owner explicitly approved collecting a national ID number and an optional ID-card image for a worker profile. The supervisor records separate identity-storage consent; only the signed-in Admin for that same farm can view the unmasked number or image.
+- **Why:** The farm now needs a fuller personnel record while preserving the simple supervisor workflow and gradual completion of existing workers.
+- **Controls:** Identity values and photo bytes are AES-256-GCM encrypted before database storage; they are absent from the normal worker table response, PWA IndexedDB/outbox, event log, SMS, CSV export and audit detail. Every profile/image view is audit-logged. Photo intake is online-only and capped to a verified 1.25 MB JPEG/PNG/WebP payload.
+- **Where:** `packages/database/src/worker-identity.ts`, migration `002_private_worker_identity.sql`, `apps/api/src/routes/workers.ts`, and the Supervisor/Admin worker views.
+- **Alternatives rejected:** plaintext columns on `workers` (easy accidental leakage through `SELECT *`), public/static image URLs, and storing an ID image in the offline PWA queue.
+
 ## Open question
 - **Unresolved same-worker/same-day conflicts are counted twice in derivation.** Per decision 20 conflicts are surfaced and resolved by a new event; until resolution, both entries currently sum into the sheet. Rare in Phase 1 (one supervisor device; the PWA edits rather than duplicates), but worth an explicit rule before the December demo: last-entry-wins for display, or exclude the conflict-flagged one?

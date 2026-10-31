@@ -10,7 +10,7 @@ Owner: elderly retired teacher, SMS only. Supervisor: low-end Android Chrome, of
 - [ ] Workers registered with consent (phone normalization 07→+254, verification SMS queued when online, unverified warning only not payment block).
 - [ ] Supervisor phone: Chrome installed, PWA at `https://tea.example.com/` → `Install app` to home screen, `○ Offline` / `● Online` banner, `Pending upload` / `✓ Up to date` tested with airplane mode.
 - [ ] Admin at `https://tea.example.com/admin` → login, check Dashboard, Workers, Payroll weeks, SMS log, Reports, Import, Audit.
-- [ ] Owner SMS: daily summary (highest kg first), Friday 17:00 estimate, no-plucking, Saturday reminder 14:30, weekly receipt tokens (≤2 segments, GSM-7) — all mocked in pilot, verify `GET /api/sms-log?farm_id=…` segments/status.
+- [ ] Owner SMS: daily summary addressed to Peter Rugut with every recorded picker in an alphabetical `NAME | KG | EST KES` table (≤3 GSM-7 parts; preview instead of sending if it would exceed the cap), Friday 17:00 estimate, no-plucking, Saturday reminder 14:30, weekly receipt tokens (≤2 segments, GSM-7) — all mocked in pilot, verify `GET /api/sms-log?farm_id=…` segments/status.
 
 ## Weekly Flow (repeat both weeks)
 

@@ -79,6 +79,50 @@ export async function getDb(): Promise<DbClient> {
     };
   }
 }
+/**
+ * Run related writes on one database connection. This is used for private
+ * identity intake so a worker, employment period, encrypted identity record,
+ * optional image, and audit fact either commit together or all roll back.
+ */
+export async function withTransaction<T>(
+  work: (db: DbClient) => Promise<T>,
+): Promise<T> {
+  const db = await getDb();
+  if (db.type === "pg") {
+    const pgPool = db.raw as Pool;
+    const client = await pgPool.connect();
+    const tx: DbClient = {
+      type: "pg",
+      raw: client,
+      query: (text: string, params?: unknown[]) => client.query(text, params),
+    };
+    try {
+      await tx.query("BEGIN");
+      const result = await work(tx);
+      await tx.query("COMMIT");
+      return result;
+    } catch (error) {
+      try { await tx.query("ROLLBACK"); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  // PGlite is used only in tests/non-production. Its single local connection
+  // supports standard BEGIN/COMMIT/ROLLBACK statements, which keeps the
+  // transaction contract identical to PostgreSQL in tests.
+  try {
+    await db.query("BEGIN");
+    const result = await work(db);
+    await db.query("COMMIT");
+    return result;
+  } catch (error) {
+    try { await db.query("ROLLBACK"); } catch {}
+    throw error;
+  }
+}
+
 export async function closeDb() {
   if (pool) {
     await pool.end();

@@ -1,7 +1,7 @@
 # Milestone 5 — SMS templates, provider adapter, idempotent scheduler
 
 ## Delivered
-- `packages/sms/scheduler.ts`: daily Owner summary (highest kg first, +N more), no-plucking, Friday 17:00 estimate, Saturday 14:30 reminder, weekly receipt tokens — all via `job_key` UNIQUE in `sms_messages` (restart never double-sends)
+- `packages/sms/scheduler.ts`: daily Owner summary for Peter Rugut (every recorded picker in alphabetical `NAME | KG | EST KES` rows, with a 3-part preview guard), no-plucking, Friday 17:00 estimate, Saturday 14:30 reminder, weekly receipt tokens — all via `job_key` UNIQUE in `sms_messages` (restart never double-sends)
 - `packages/sms` adapter: `mock` (default) + `africastalking` stub per official docs, `getSmsAdapter()` switches on `SMS_PROVIDER` + `AT_API_KEY`, mock logs `segments` + `status=queued`
 - Migration `002_sms_idempotency.sql`: `job_key` UNIQUE index + `sms_jobs` table for cron tracking
 - `apps/api/routes/sms.ts`: `GET /api/sms-log?farm_id=&limit=` (shows body, segments, status, job_key), `GET /api/sms-stats`, `PUT /api/farms/:farmId/settings` (ownerPhone/supervisorPhone)

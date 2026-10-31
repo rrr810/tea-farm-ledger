@@ -10,13 +10,18 @@ import { smsRoutes } from "./routes/sms.js";
 import { cronRoutes } from "./routes/cron.js";
 import { payrollRoutes } from "./routes/payroll.js";
 import { adminRoutes } from "./routes/admin.js";
+import { supervisorRoutes } from "./routes/supervisor.js";
+import { supervisorsRoutes } from "./routes/supervisors.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(__dirname, "../../public"); // dist will adjust, check both
 import { existsSync } from "node:fs";
 export async function buildApp() {
-  const app = Fastify({ logger: true });
+  // Identity-photo uploads are compressed client-side and capped lower than
+  // this server boundary. Keep the limit explicit so an oversized request is
+  // rejected before it can consume an unbounded serverless function.
+  const app = Fastify({ logger: true, bodyLimit: 2_000_000 });
   await app.register(cors, { origin: true });
   // Serve PWA static from public if exists (built via vite)
   const candidates = [publicDir, join(process.cwd(), "apps/api/public"), join(process.cwd(), "public")];
@@ -45,6 +50,8 @@ export async function buildApp() {
   app.register(cronRoutes);
   app.register(payrollRoutes);
   app.register(adminRoutes);
+  app.register(supervisorRoutes);
+  app.register(supervisorsRoutes);
   app.setErrorHandler((err: unknown, _req: unknown, reply: { status: (c: number) => { send: (o: unknown) => void } }) => {
     (app.log as { error: (e: unknown) => void }).error(err);
     const msg = err instanceof Error ? err.message : String(err);

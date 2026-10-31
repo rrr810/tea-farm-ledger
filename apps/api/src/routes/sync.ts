@@ -15,9 +15,23 @@ export async function syncRoutes(app: FastifyInstance) {
     const result = await pushEvents(events, db as Awaited<ReturnType<typeof getDb>>);
 
     // M5: side effects — plucking_days + SMS (idempotent, mock default)
-    // Do not block sync response on SMS failures
+    // Do not block sync response on SMS failures. Daily actions are only
+    // authorized by an event newly accepted in this server sync, never a
+    // re-uploaded duplicate.
+    const acceptedEventIds = new Set(result.acceptedEventIds);
     for (const ev of events) {
       try {
+        if ((ev.event_type === "day.plucking_set" || ev.event_type === "day.confirmed") && !acceptedEventIds.has(ev.event_id)) continue;
+        // A late/conflicted completed-day event is retained as history but must
+        // never cause a fresh financial SMS for an already-locked record.
+        if (ev.event_type === "day.plucking_set" || ev.event_type === "day.confirmed") {
+          const stored = await db.query(
+            "SELECT correction_flag, conflict_flag FROM events WHERE event_id=$1",
+            [ev.event_id],
+          );
+          const flags = (stored.rows as Array<{ correction_flag?: boolean; conflict_flag?: boolean }>)[0];
+          if (flags?.correction_flag || flags?.conflict_flag) continue;
+        }
         if (ev.event_type === "day.plucking_set") {
           const payload = ev.payload as { date?: string; is_plucking_day?: boolean; reason?: string };
           const date = (payload.date as string) ?? ev.business_date;
@@ -30,8 +44,14 @@ export async function syncRoutes(app: FastifyInstance) {
             [ev.farm_id, date, isPlucking, reason]
           );
           if (!isPlucking) {
-            const { sendNoPluckingSms } = await import("@tea-ledger/sms");
-            await sendNoPluckingSms({ farmId: ev.farm_id, date, reason: reason ?? undefined });
+            const { isLiveDailySmsEnabledForFarm, sendLiveNoPluckingSms, sendNoPluckingSms } = await import("@tea-ledger/sms");
+            // Live delivery is opt-in for one named farm. Until then, preserve
+            // the established mock-only scheduler behaviour exactly.
+            if (isLiveDailySmsEnabledForFarm(ev.farm_id)) {
+              await sendLiveNoPluckingSms({ farmId: ev.farm_id, date, reason: reason ?? undefined });
+            } else {
+              await sendNoPluckingSms({ farmId: ev.farm_id, date, reason: reason ?? undefined });
+            }
           }
         }
         if (ev.event_type === "day.confirmed") {
@@ -43,8 +63,12 @@ export async function syncRoutes(app: FastifyInstance) {
              ON CONFLICT (farm_id, date) DO UPDATE SET confirmed=true, confirmed_at=NOW()`,
             [ev.farm_id, date]
           );
-          const { sendDailyOwnerSms } = await import("@tea-ledger/sms");
-          await sendDailyOwnerSms({ farmId: ev.farm_id, date });
+          const { isLiveDailySmsEnabledForFarm, sendLiveDailySms, sendDailyOwnerSms } = await import("@tea-ledger/sms");
+          if (isLiveDailySmsEnabledForFarm(ev.farm_id)) {
+            await sendLiveDailySms({ farmId: ev.farm_id, date });
+          } else {
+            await sendDailyOwnerSms({ farmId: ev.farm_id, date });
+          }
         }
         if (ev.event_type === "week.submitted") {
           const { sendWeeklyReceipts } = await import("@tea-ledger/sms");

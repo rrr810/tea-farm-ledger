@@ -50,18 +50,24 @@ export async function getPayrollData(opts: {
   // Plucks: all pluck.logged in week. Correction-flagged events (late arrivals for
   // locked weeks) are kept in the log but NEVER applied to the sheet (APPROVED decision 2).
   const pluckRes = await db.query(
-    `SELECT payload->>'worker_id' as worker_id, business_date, payload->>'kg_units' as kg_units, payload->>'present' as present
+    `SELECT payload->>'worker_id' as worker_id, business_date, payload->>'kg_units' as kg_units, payload->>'present' as present, conflict_flag
      FROM events WHERE farm_id=$1 AND business_date >= $2 AND business_date <= $3 AND event_type='pluck.logged' AND correction_flag = false`,
     [farmId, weekStart, weekEnd],
   );
   const plucksByWorker = new Map<string, PluckEntry[]>();
-  for (const r of pluckRes.rows as Array<{ worker_id: string; business_date: string; kg_units: string | null; present: string | null }>) {
+  for (const r of pluckRes.rows as Array<{ worker_id: string; business_date: string; kg_units: string | null; present: string | null; conflict_flag?: boolean }>) {
     const wid = r.worker_id;
     if (!wid) continue;
     const bdate = typeof r.business_date === "string" ? r.business_date.slice(0, 10) : new Date(r.business_date).toISOString().slice(0, 10);
     const present = r.present !== "false"; // default true if missing
     const kgUnits = r.kg_units !== null ? Number(r.kg_units) : null;
-    const entry: PluckEntry = { workerId: wid, businessDate: bdate, kgUnits: Number.isNaN(kgUnits as number) ? null : kgUnits, present };
+    const entry: PluckEntry = {
+      workerId: wid,
+      businessDate: bdate,
+      kgUnits: Number.isNaN(kgUnits as number) ? null : kgUnits,
+      present,
+      conflictFlag: r.conflict_flag === true,
+    };
     if (!plucksByWorker.has(wid)) plucksByWorker.set(wid, []);
     plucksByWorker.get(wid)!.push(entry);
   }
