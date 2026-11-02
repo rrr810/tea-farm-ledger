@@ -13,6 +13,28 @@ export function validateWorkerName(name: string): ValidationResult {
   if (name.trim().length > 100) return { valid: false, reason: "name too long", code: "NAME_LONG" };
   return { valid: true };
 }
+
+/**
+ * A farm name is chosen once during initial owner setup. It is deliberately
+ * bounded and printable because it is shown on reports and receipts.
+ */
+export function validateFarmName(name: string): ValidationResult {
+  if (!name || typeof name !== "string" || !name.trim()) {
+    return { valid: false, reason: "farm name required", code: "FARM_NAME_REQUIRED" };
+  }
+  const normalized = name.trim();
+  if (normalized.length < 2) {
+    return { valid: false, reason: "farm name too short", code: "FARM_NAME_SHORT" };
+  }
+  if (normalized.length > 80) {
+    return { valid: false, reason: "farm name too long", code: "FARM_NAME_LONG" };
+  }
+  if (/\p{C}/u.test(normalized)) {
+    return { valid: false, reason: "farm name has invalid characters", code: "FARM_NAME_INVALID" };
+  }
+  return { valid: true };
+}
+
 export function validatePhoneForWorker(phone: string): ValidationResult {
   const res = normalizeKePhone(phone);
   if (!res.ok) return { valid: false, reason: res.reason, code: "PHONE_INVALID" };

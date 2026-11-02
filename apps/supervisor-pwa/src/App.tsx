@@ -179,9 +179,12 @@ export default function App() {
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
   const [farmId, setFarmId] = useState(localStorage.getItem("farm_id") ?? "");
+  // The server-stored name is canonical. It is editable only before the first
+  // farm is registered on this device; a registered farm is display-only.
   const [farmName, setFarmName] = useState(
     localStorage.getItem("farm_name") ?? "",
   );
+  const [registeringFarm, setRegisteringFarm] = useState(false);
   const [workers, setWorkers] = useState<LocalWorker[]>([]);
   const [selectedDate, setSelectedDate] = useState(() =>
     activeDateForFarm(farmId),
@@ -261,7 +264,7 @@ export default function App() {
       return;
     }
     if (!farmId) {
-      setToast("Create or enter the Farm ID before Supervisor sign-in", "error");
+      setToast("Register the farm before Supervisor sign-in", "error");
       return;
     }
     if (!supervisorUsername.trim() || !supervisorPassword) {
@@ -388,6 +391,29 @@ export default function App() {
     if (!online) clearPrivateIdentityDrafts();
   }, [online]);
 
+  // A field device may cache a display label from an older app version. Refresh
+  // it from the narrow farm lookup when online, then keep it display-only.
+  useEffect(() => {
+    if (!farmId || !online) return;
+    let cancelled = false;
+    void fetch(`/api/farms/${encodeURIComponent(farmId)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("farm not found");
+        return (await response.json()) as { farm_id?: string; name?: string };
+      })
+      .then((farm) => {
+        if (cancelled || farm.farm_id !== farmId || !farm.name?.trim()) return;
+        const canonicalName = farm.name.trim();
+        localStorage.setItem("farm_name", canonicalName);
+        setFarmName(canonicalName);
+      })
+      // Offline work must remain usable with the last known display label.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [farmId, online]);
+
   useEffect(() => {
     // A draft belongs only to the currently open farm/day sheet.
     setKgDrafts({});
@@ -474,45 +500,58 @@ export default function App() {
     }, 1800);
   }
 
-  async function saveFarmId(v: string) {
-    if (v !== farmId) clearSupervisorIdentitySession();
-    setFarmId(v);
-    localStorage.setItem("farm_id", v);
-    activateDate(activeDateForFarm(v), v);
-    if (v && online) {
+  async function adoptRegisteredFarm(farm: { farm_id: string; name: string }) {
+    if (farm.farm_id !== farmId) clearSupervisorIdentitySession();
+    setFarmId(farm.farm_id);
+    setFarmName(farm.name);
+    localStorage.setItem("farm_id", farm.farm_id);
+    localStorage.setItem("farm_name", farm.name);
+    activateDate(activeDateForFarm(farm.farm_id), farm.farm_id);
+    if (online) {
       try {
-        const res = await fetch(`/api/farms/${v}/workers`);
+        const res = await fetch(`/api/farms/${encodeURIComponent(farm.farm_id)}/workers`);
         if (res.ok) {
           const data = (await res.json()) as { workers: LocalWorker[] };
-          for (const w of data.workers) await db.workers.put(w);
+          for (const worker of data.workers) await db.workers.put(worker);
         }
       } catch {}
     }
   }
+
   async function createFarm() {
     if (!online) {
-      setToast("Connect to internet to create farm", "error");
+      setToast("Connect to the internet to register the farm", "error");
       return;
     }
+    // Once farm_id exists, this device renders a locked server-backed identity
+    // rather than offering another creation or editing path.
+    if (farmId) return;
     const name = farmName.trim();
     if (!name) {
-      setToast("Enter a clear farm label, e.g. TEST-5532", "error");
+      setToast("Enter the official farm name before registering it", "error");
       return;
     }
+    setRegisteringFarm(true);
     try {
       const res = await fetch("/api/farms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      if (!res.ok) throw new Error(await res.text());
-      const data = (await res.json()) as { farm_id: string };
-      saveFarmId(data.farm_id);
-      localStorage.setItem("farm_name", name);
-      setFarmName(name);
-      setToast(`Farm "${name}" created — ready to add workers`, "success");
-    } catch (e) {
-      setToast(`Failed: ${String(e)}`, "error");
+      const data = (await res.json().catch(() => ({}))) as {
+        farm_id?: string;
+        name?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.farm_id || !data.name) {
+        throw new Error(data.error || "Farm registration failed");
+      }
+      await adoptRegisteredFarm({ farm_id: data.farm_id, name: data.name });
+      setToast(`Farm "${data.name}" registered and locked on this device.`, "success");
+    } catch (error) {
+      setToast(String((error as Error).message), "error");
+    } finally {
+      setRegisteringFarm(false);
     }
   }
 
@@ -606,7 +645,7 @@ export default function App() {
       return;
     }
     if (!farmId) {
-      setToast("Create or enter Farm ID first (top bar)", "error");
+      setToast("Register the farm first in the top bar", "error");
       return;
     }
     const dup = workers.find(
@@ -1295,27 +1334,34 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div className="estate-farm-controls">
-            <input
-              value={farmName}
-              onChange={(e) => setFarmName(e.target.value)}
-              aria-label="Farm label"
-              placeholder="Farm label, e.g. TEST-5532"
-            />
-            <input
-              value={farmId}
-              onChange={(e) => saveFarmId(e.target.value)}
-              aria-label="Farm ID"
-              placeholder="Farm ID"
-            />
-            <button
-              className="estate-new-farm"
-              onClick={createFarm}
-              data-testid="new-farm"
-            >
-              + New farm
-            </button>
-          </div>
+          {farmId ? (
+            <div className="estate-farm-locked" aria-label="Registered farm locked on this device">
+              <strong>{farmName || "Registered farm"}</strong>
+              <span>Farm {farmId.slice(0, 8)} · Locked</span>
+            </div>
+          ) : (
+            <div className="estate-farm-registration" aria-label="One-time farm registration">
+              <label>
+                <span>One-time owner setup</span>
+                <input
+                  value={farmName}
+                  onChange={(e) => setFarmName(e.target.value)}
+                  aria-label="Official farm name"
+                  placeholder="Official farm name"
+                  maxLength={80}
+                  disabled={registeringFarm}
+                />
+              </label>
+              <button
+                className="estate-new-farm"
+                onClick={() => void createFarm()}
+                disabled={registeringFarm}
+                data-testid="register-farm"
+              >
+                {registeringFarm ? "Registering…" : "Register & lock"}
+              </button>
+            </div>
+          )}
         </div>
       </header>
 

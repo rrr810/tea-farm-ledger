@@ -57,5 +57,11 @@ These are our interpretations for unspecified points. Ryan's authoritative decis
 - **Where:** `packages/database/src/worker-identity.ts`, migration `002_private_worker_identity.sql`, `apps/api/src/routes/workers.ts`, and the Supervisor/Admin worker views.
 - **Alternatives rejected:** plaintext columns on `workers` (easy accidental leakage through `SELECT *`), public/static image URLs, and storing an ID image in the offline PWA queue.
 
+## J12 — Farm name is registered once and locked in the field PWA
+- **Choice:** On a new field device, the owner enters the official farm name once and selects **Register & lock**. The server stores that canonical name. Once a `farm_id` exists, the PWA removes the editable name/farm-ID controls and shows a read-only name plus shortened farm reference. On reconnect, it refreshes the display name from the narrow canonical lookup.
+- **Why:** A field worker must not accidentally relabel a farm or switch the daily sheet to another UUID. The old editable header only changed browser storage; it never renamed the server record, which was confusing and unsafe operationally.
+- **Where:** `apps/supervisor-pwa/src/App.tsx`, `apps/api/src/routes/farms.ts`.
+- **Alternatives rejected:** keeping a casual in-field rename/switcher; adding a multi-farm setup flow before an explicit safe tenancy policy exists. A later rename, if ever needed, should be an explicit audited owner workflow—not a field control.
+
 ## Open question
 - **Unresolved same-worker/same-day conflicts are counted twice in derivation.** Per decision 20 conflicts are surfaced and resolved by a new event; until resolution, both entries currently sum into the sheet. Rare in Phase 1 (one supervisor device; the PWA edits rather than duplicates), but worth an explicit rule before the December demo: last-entry-wins for display, or exclude the conflict-flagged one?
