@@ -24,6 +24,20 @@ type SupervisorIdentitySession = {
 };
 
 const SUPERVISOR_IDENTITY_SESSION_KEY = "supervisor_identity_session";
+const FIELD_DEVICE_TOKEN_KEY = "field_device_access_token";
+
+function readFieldDeviceToken(): string {
+  return localStorage.getItem(FIELD_DEVICE_TOKEN_KEY)?.trim() ?? "";
+}
+
+function deviceAuthHeaders(token: string): Record<string, string> {
+  return token
+    ? {
+        "X-Tea-Device-Id": getDeviceId(),
+        "X-Tea-Device-Token": token,
+      }
+    : {};
+}
 
 function readSupervisorIdentitySession(): SupervisorIdentitySession | null {
   try {
@@ -185,6 +199,10 @@ export default function App() {
     localStorage.getItem("farm_name") ?? "",
   );
   const [registeringFarm, setRegisteringFarm] = useState(false);
+  // The opaque token is issued once per enrolled field browser. It is never
+  // displayed in the UI or put into the offline worker/event store.
+  const [deviceToken, setDeviceToken] = useState(() => readFieldDeviceToken());
+  const [enrollingDevice, setEnrollingDevice] = useState(false);
   const [workers, setWorkers] = useState<LocalWorker[]>([]);
   const [selectedDate, setSelectedDate] = useState(() =>
     activeDateForFarm(farmId),
@@ -258,6 +276,37 @@ export default function App() {
     clearPrivateIdentityDrafts();
   }
 
+  function rememberFieldDeviceToken(token: string) {
+    localStorage.setItem(FIELD_DEVICE_TOKEN_KEY, token);
+    setDeviceToken(token);
+  }
+
+  async function enrollCurrentFieldDevice(supervisorToken: string) {
+    if (!farmId) throw new Error("Register the farm before securing this device");
+    setEnrollingDevice(true);
+    try {
+      const response = await fetch(`/api/farms/${encodeURIComponent(farmId)}/devices/enroll`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supervisorToken}`,
+        },
+        body: JSON.stringify({ device_id: getDeviceId() }),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        farm_id?: string;
+        device_token?: string;
+        error?: string;
+      };
+      if (!response.ok || result.farm_id !== farmId || !result.device_token) {
+        throw new Error(result.error || "Could not secure this field device");
+      }
+      rememberFieldDeviceToken(result.device_token);
+    } finally {
+      setEnrollingDevice(false);
+    }
+  }
+
   async function signInForPrivateIdentity() {
     if (!online) {
       setToast("Connect to sign in for private ID tools", "error");
@@ -304,11 +353,21 @@ export default function App() {
         farmId: result.farm_id,
         expiresAt: result.expires_at,
       };
+      // Existing field devices receive their opaque browser credential during
+      // this authenticated one-time enrolment. New devices receive it at farm
+      // registration, so neither path relies on a visible Farm ID as a secret.
+      const enrolledNow = !deviceToken;
+      if (enrolledNow) await enrollCurrentFieldDevice(session.token);
       sessionStorage.setItem(SUPERVISOR_IDENTITY_SESSION_KEY, JSON.stringify(session));
       setSupervisorSession(session);
       setSupervisorSessionVerified(true);
       setSupervisorPassword("");
-      setToast("Private ID tools unlocked for this farm until the session expires.", "success");
+      setToast(
+        enrolledNow
+          ? "This field device is secured. Private ID tools are unlocked until the session expires."
+          : "Private ID tools unlocked for this farm until the session expires.",
+        "success",
+      );
     } catch (error) {
       setToast(String((error as Error).message), "error");
     } finally {
@@ -394,9 +453,11 @@ export default function App() {
   // A field device may cache a display label from an older app version. Refresh
   // it from the narrow farm lookup when online, then keep it display-only.
   useEffect(() => {
-    if (!farmId || !online) return;
+    if (!farmId || !online || !deviceToken) return;
     let cancelled = false;
-    void fetch(`/api/farms/${encodeURIComponent(farmId)}`)
+    void fetch(`/api/farms/${encodeURIComponent(farmId)}`, {
+      headers: deviceAuthHeaders(deviceToken),
+    })
       .then(async (response) => {
         if (!response.ok) throw new Error("farm not found");
         return (await response.json()) as { farm_id?: string; name?: string };
@@ -412,7 +473,29 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [farmId, online]);
+  }, [farmId, online, deviceToken]);
+
+  // Refresh the local field roster only after this browser proves its farm-bound
+  // device credential. Existing offline records remain usable without a network.
+  useEffect(() => {
+    if (!farmId || !online || !deviceToken) return;
+    let cancelled = false;
+    void fetch(`/api/farms/${encodeURIComponent(farmId)}/workers`, {
+      headers: deviceAuthHeaders(deviceToken),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("worker roster unavailable");
+        return (await response.json()) as { workers?: LocalWorker[] };
+      })
+      .then(async (data) => {
+        if (cancelled) return;
+        for (const worker of data.workers ?? []) await db.workers.put(worker);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [farmId, online, deviceToken]);
 
   useEffect(() => {
     // A draft belongs only to the currently open farm/day sheet.
@@ -446,7 +529,7 @@ export default function App() {
   // Kg remains local until Done queues the complete day's batch, so this never
   // sends a half-day kg entry merely because connectivity is available.
   useEffect(() => {
-    if (!online || pending === 0 || syncing) return;
+    if (!online || !deviceToken || pending === 0 || syncing) return;
     let cancelled = false;
     void db.outbox.toArray().then((items) => {
       if (cancelled || !shouldAutoSyncOutbox(items)) return;
@@ -458,7 +541,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [pending, online, syncing]);
+  }, [pending, online, syncing, deviceToken]);
 
   function activateDate(date: string, targetFarmId = farmId) {
     if (targetFarmId)
@@ -500,16 +583,24 @@ export default function App() {
     }, 1800);
   }
 
-  async function adoptRegisteredFarm(farm: { farm_id: string; name: string }) {
+  async function adoptRegisteredFarm(farm: {
+    farm_id: string;
+    name: string;
+    device_token?: string;
+  }) {
     if (farm.farm_id !== farmId) clearSupervisorIdentitySession();
+    const nextDeviceToken = farm.device_token ?? deviceToken;
+    if (farm.device_token) rememberFieldDeviceToken(farm.device_token);
     setFarmId(farm.farm_id);
     setFarmName(farm.name);
     localStorage.setItem("farm_id", farm.farm_id);
     localStorage.setItem("farm_name", farm.name);
     activateDate(activeDateForFarm(farm.farm_id), farm.farm_id);
-    if (online) {
+    if (online && nextDeviceToken) {
       try {
-        const res = await fetch(`/api/farms/${encodeURIComponent(farm.farm_id)}/workers`);
+        const res = await fetch(`/api/farms/${encodeURIComponent(farm.farm_id)}/workers`, {
+          headers: deviceAuthHeaders(nextDeviceToken),
+        });
         if (res.ok) {
           const data = (await res.json()) as { workers: LocalWorker[] };
           for (const worker of data.workers) await db.workers.put(worker);
@@ -536,17 +627,22 @@ export default function App() {
       const res = await fetch("/api/farms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, device_id: getDeviceId() }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         farm_id?: string;
         name?: string;
+        device_token?: string;
         error?: string;
       };
-      if (!res.ok || !data.farm_id || !data.name) {
+      if (!res.ok || !data.farm_id || !data.name || !data.device_token) {
         throw new Error(data.error || "Farm registration failed");
       }
-      await adoptRegisteredFarm({ farm_id: data.farm_id, name: data.name });
+      await adoptRegisteredFarm({
+        farm_id: data.farm_id,
+        name: data.name,
+        device_token: data.device_token,
+      });
       setToast(`Farm "${data.name}" registered and locked on this device.`, "success");
     } catch (error) {
       setToast(String((error as Error).message), "error");
@@ -658,9 +754,11 @@ export default function App() {
       );
       return;
     }
-    if (!privateIdentityAccessReady) {
+    if (!privateIdentityAccessReady || !deviceToken) {
       const reason = online
-        ? "Private ID details need a Supervisor sign-in for this farm."
+        ? deviceToken
+          ? "Private ID details need a Supervisor sign-in for this farm."
+          : "Secure this field device with a Supervisor sign-in before saving private ID details."
         : "Private ID details cannot be saved offline and will not be queued on this phone.";
       const saveBasicOnly = window.confirm(
         `${reason} Add this worker with name and phone only, then complete the ID profile online after Supervisor sign-in?`,
@@ -686,6 +784,7 @@ export default function App() {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${supervisorSession!.token}`,
+          ...deviceAuthHeaders(deviceToken),
         },
         body: JSON.stringify({
           full_name: fullName.trim(),
@@ -749,10 +848,12 @@ export default function App() {
       setToast("Select a worker first", "error");
       return;
     }
-    if (!privateIdentityAccessReady) {
+    if (!privateIdentityAccessReady || !deviceToken) {
       setToast(
         online
-          ? "Sign in as this farm's Supervisor before completing private ID details."
+          ? deviceToken
+            ? "Sign in as this farm's Supervisor before completing private ID details."
+            : "Secure this field device with a Supervisor sign-in before completing private ID details."
           : "Connect to complete private ID details. They are never queued offline.",
         "error",
       );
@@ -779,6 +880,7 @@ export default function App() {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${supervisorSession!.token}`,
+            ...deviceAuthHeaders(deviceToken),
           },
           body: JSON.stringify({
             national_id_number: nationalId.value,
@@ -1258,6 +1360,12 @@ export default function App() {
     syncingRef.current = true;
     let all: OutboxEvent[] = [];
     try {
+      if (!deviceToken) {
+        if (manual) {
+          setToast("Secure this field device with a Supervisor sign-in before syncing.", "error");
+        }
+        return;
+      }
       all = await db.outbox.toArray();
       if (!all.length) {
         if (manual) setToast("All up to date — nothing to sync", "info");
@@ -1267,7 +1375,7 @@ export default function App() {
       const events = all.map((o) => o.payload);
       const res = await fetch("/api/sync/push", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...deviceAuthHeaders(deviceToken) },
         body: JSON.stringify({ events }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -1337,7 +1445,9 @@ export default function App() {
           {farmId ? (
             <div className="estate-farm-locked" aria-label="Registered farm locked on this device">
               <strong>{farmName || "Registered farm"}</strong>
-              <span>Farm {farmId.slice(0, 8)} · Locked</span>
+              <span>
+                Farm {farmId.slice(0, 8)} · Locked · {deviceToken ? "Device secure" : "Secure device"}
+              </span>
             </div>
           ) : (
             <div className="estate-farm-registration" aria-label="One-time farm registration">
@@ -1437,6 +1547,27 @@ export default function App() {
           </div>
         )}
       </section>
+
+      {farmId && !deviceToken && (
+        <section
+          className="sync-zone"
+          aria-live="polite"
+          style={{ borderColor: "#F4C66A", background: "#FFF9ED" }}
+        >
+          <div className="sync-rail" style={{ gap: 12, alignItems: "center" }}>
+            <span className="sync-status" style={{ color: "#76521A" }}>
+              <b>Secure this field device</b> · One Supervisor sign-in is required before this phone can download or sync farm records.
+            </span>
+            <button
+              className="sync-action is-pending"
+              onClick={() => setTab("workers")}
+              disabled={!online || enrollingDevice}
+            >
+              {enrollingDevice ? "Securing…" : "Secure device"}
+            </button>
+          </div>
+        </section>
+      )}
 
       <main className="supervisor-main">
         <section className="field-day-card">
@@ -1706,8 +1837,9 @@ export default function App() {
                     </div>
                     <p>
                       You can still register a basic worker and use all daily kg
-                      tools. National ID details and images are accepted only
+                      tools offline. National ID details and images are accepted only
                       online after an Admin-provisioned, farm-bound Supervisor sign-in.
+                      {!deviceToken && " This first sign-in also secures this field phone for farm sync."}
                     </p>
                     {online && (
                       <div className="identity-signin-row">
@@ -1735,10 +1867,14 @@ export default function App() {
                         />
                         <button
                           className="identity-signin-button"
-                          disabled={supervisorSigningIn || !farmId}
+                          disabled={supervisorSigningIn || enrollingDevice || !farmId}
                           onClick={() => void signInForPrivateIdentity()}
                         >
-                          {supervisorSigningIn ? "Signing in…" : "Sign in"}
+                          {supervisorSigningIn || enrollingDevice
+                            ? "Securing…"
+                            : deviceToken
+                              ? "Sign in"
+                              : "Sign in & secure device"}
                         </button>
                       </div>
                     )}

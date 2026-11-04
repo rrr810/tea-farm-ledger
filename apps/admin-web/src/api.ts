@@ -18,6 +18,23 @@ async function req(path: string, opts: RequestInit = {}) {
   return res.json();
 }
 
+/**
+ * Browser navigation cannot attach a Bearer header. Sensitive printable exports
+ * therefore always flow through this authenticated fetch rather than a direct
+ * anchor to a protected API route.
+ */
+async function authenticatedBlob(path: string): Promise<Blob> {
+  const res = await fetch(path, {
+    headers: { Authorization: `Bearer ${token() ?? ""}` },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${text}`);
+  }
+  return res.blob();
+}
+
 export const api = {
   login: (username: string, password: string) => req("/api/admin/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   me: () => req("/api/admin/me"),
@@ -40,7 +57,11 @@ export const api = {
   },
   payroll: (fid: string, weekStart: string) => req(`/api/farms/${fid}/payroll/${weekStart}`),
   payrollWeeks: (fid: string) => req(`/api/farms/${fid}/payroll`),
-  payrollCsv: (fid: string, weekStart: string) => fetch(`/api/farms/${fid}/payroll/${weekStart}?format=csv`, { headers: { Authorization: `Bearer ${token() ?? ""}` } }).then(r => r.text()),
+  payrollExport: (fid: string, weekStart: string, format: "csv" | "html") =>
+    authenticatedBlob(`/api/farms/${fid}/payroll/${weekStart}?format=${format}`),
+  kgRegisterExport: (fid: string, weekStart: string, format: "csv" | "html") =>
+    authenticatedBlob(`/api/farms/${fid}/kg-register/${weekStart}?format=${format}`),
+  csvTemplate: (fid: string) => authenticatedBlob(`/api/farms/${fid}/csv-template`),
   refreshSmsDelivery: (fid: string) => req(`/api/farms/${fid}/sms/refresh-delivery`, { method: "POST", body: JSON.stringify({}) }),
   conflicts: (fid: string) => req(`/api/farms/${fid}/conflicts`),
   corrections: (fid: string) => req(`/api/farms/${fid}/correction-requests`),

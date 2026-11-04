@@ -438,6 +438,50 @@ export default function App() {
     }
   }
 
+  function saveBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  }
+
+  async function downloadProtectedExport(
+    load: () => Promise<Blob>,
+    filename: string,
+  ) {
+    try {
+      saveBlob(await load(), filename);
+    } catch (error) {
+      toast(String(error));
+    }
+  }
+
+  async function openProtectedPrintable(load: () => Promise<Blob>) {
+    // Open synchronously from the click so popup protection does not suppress
+    // an authenticated printable export that resolves a moment later.
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast("Allow pop-ups to open the printable export.");
+      return;
+    }
+    printWindow.opener = null;
+    printWindow.document.title = "Preparing secure export…";
+    printWindow.document.body.textContent = "Preparing secure export…";
+    try {
+      const url = URL.createObjectURL(await load());
+      printWindow.location.replace(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (error) {
+      printWindow.close();
+      toast(String(error));
+    }
+  }
+
   async function refreshSmsDelivery() {
     if (!currentFarm || smsRefreshing) return;
     setSmsRefreshing(true);
@@ -935,42 +979,54 @@ export default function App() {
                 Load Sheet
               </button>
               {payrollSheet && (
-                <a
-                  href={`/api/farms/${currentFarm}/payroll/${weekStart}?format=csv`}
-                  download
-                  style={{ fontSize: 13 }}
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    void downloadProtectedExport(
+                      () => api.payrollExport(currentFarm, weekStart, "csv"),
+                      `payroll-${weekStart}.csv`,
+                    )
+                  }
                 >
                   Download payroll CSV
-                </a>
+                </button>
               )}
               {payrollSheet && (
-                <a
-                  href={`/api/farms/${currentFarm}/payroll/${weekStart}?format=html`}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ fontSize: 13, fontWeight: 700 }}
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    void openProtectedPrintable(() =>
+                      api.payrollExport(currentFarm, weekStart, "html"),
+                    )
+                  }
                 >
                   Print payroll / Save PDF
-                </a>
+                </button>
               )}
               {payrollSheet && (
-                <a
-                  href={`/api/farms/${currentFarm}/kg-register/${weekStart}?format=csv`}
-                  download
-                  style={{ fontSize: 13 }}
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    void downloadProtectedExport(
+                      () => api.kgRegisterExport(currentFarm, weekStart, "csv"),
+                      `kg-register-${weekStart}.csv`,
+                    )
+                  }
                 >
                   Download kg register CSV
-                </a>
+                </button>
               )}
               {payrollSheet && (
-                <a
-                  href={`/api/farms/${currentFarm}/kg-register/${weekStart}?format=html`}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ fontSize: 13, fontWeight: 700 }}
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    void openProtectedPrintable(() =>
+                      api.kgRegisterExport(currentFarm, weekStart, "html"),
+                    )
+                  }
                 >
                   Print weekly kg register / Save PDF
-                </a>
+                </button>
               )}
             </div>
             {payrollSheet ? (
@@ -1508,12 +1564,17 @@ export default function App() {
               <button className="primary" onClick={doCsvCommit}>
                 Commit
               </button>
-              <a
-                href={`/api/farms/${currentFarm}/csv-template`}
-                style={{ fontSize: 13, alignSelf: "center" }}
+              <button
+                className="secondary"
+                onClick={() =>
+                  void downloadProtectedExport(
+                    () => api.csvTemplate(currentFarm),
+                    "tea-ledger-import-template.csv",
+                  )
+                }
               >
                 Download template
-              </a>
+              </button>
             </div>
             {csvPreview ? (
               <pre

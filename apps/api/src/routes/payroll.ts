@@ -10,8 +10,16 @@ import {
   weeklyKgRegisterToPrintableHtml,
 } from "@tea-ledger/core";
 import { getWeekEndSaturday } from "@tea-ledger/core";
+import { requireAdminForFarm } from "../admin-auth.js";
 
 export async function payrollRoutes(app: FastifyInstance) {
+  // Payroll, printable registers, rates, and adjustments all contain private
+  // wage/attendance information and are owner-only.
+  app.addHook("preHandler", async (req, reply) => {
+    const farmId = (req.params as { farmId?: string } | undefined)?.farmId;
+    if (!farmId) return;
+    await requireAdminForFarm(req, reply, farmId);
+  });
   // GET /api/farms/:farmId/payroll/:weekStart?format=csv|html|json (query format overrides Accept)
   app.get("/api/farms/:farmId/payroll/:weekStart", async (req, reply) => {
     const { farmId, weekStart } = req.params as { farmId: string; weekStart: string };

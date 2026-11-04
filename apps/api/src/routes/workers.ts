@@ -19,6 +19,7 @@ import {
 import { normalizeNationalIdNumber, validateWorkerName } from "@tea-ledger/core";
 import { requireAdminForFarm } from "../admin-auth.js";
 import { requireSupervisorForFarm } from "../supervisor-auth.js";
+import { requireFarmDevice } from "../device-auth.js";
 
 type IdentityPhotoBody = { content_type?: string; base64?: string };
 type CreateWorkerBody = {
@@ -40,6 +41,15 @@ function createErrorStatus(message: string): number {
     : 400;
 }
 
+async function workerBelongsToFarm(workerId: string, farmId: string): Promise<boolean> {
+  const db = await getDb();
+  const result = await db.query(
+    "SELECT 1 FROM workers WHERE worker_id=$1 AND farm_id=$2 LIMIT 1",
+    [workerId, farmId],
+  );
+  return (result.rows as unknown[]).length === 1;
+}
+
 async function auditIdentityAccess(opts: {
   farmId: string;
   actor: string;
@@ -59,10 +69,13 @@ async function auditIdentityAccess(opts: {
 }
 
 export async function workersRoutes(app: FastifyInstance) {
-  // Safe supervisor/PWA view. Identity details are held in a separate table
-  // and are never selected by this route.
-  app.get("/api/farms/:farmId/workers", async (req) => {
+  // Field worker data contains names and phone numbers. A visible farm ID is
+  // not authorization, so the PWA must present its farm-bound device token.
+  // Identity details remain in a separate table and are never selected here.
+  app.get("/api/farms/:farmId/workers", async (req, reply) => {
     const { farmId } = req.params as { farmId: string };
+    const device = await requireFarmDevice(req, reply, farmId);
+    if (!device) return;
     const workers = await listWorkers(farmId);
     return { workers };
   });
@@ -77,6 +90,9 @@ export async function workersRoutes(app: FastifyInstance) {
     // short-lived, farm-bound Supervisor session before validation or storage.
     const supervisor = await requireSupervisorForFarm(req, reply, farmId);
     if (!supervisor) return;
+    // A short-lived Supervisor session proves who is recording consent; the
+    // farm-bound device credential proves this is an enrolled field browser.
+    if (!(await requireFarmDevice(req, reply, farmId))) return;
     const body = (req.body ?? {}) as CreateWorkerBody;
     const fullName = body.full_name?.trim() ?? "";
     const nameValidation = validateWorkerName(fullName);
@@ -180,6 +196,7 @@ export async function workersRoutes(app: FastifyInstance) {
     const { farmId, workerId } = req.params as { farmId: string; workerId: string };
     const supervisor = await requireSupervisorForFarm(req, reply, farmId);
     if (!supervisor) return;
+    if (!(await requireFarmDevice(req, reply, farmId))) return;
     const body = (req.body ?? {}) as {
       national_id_number?: string;
       identity_consent?: boolean;
@@ -231,28 +248,47 @@ export async function workersRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/api/workers/:workerId/hire", async (req, reply) => {
-    const { workerId } = req.params as { workerId: string };
-    const body = req.body as { farm_id?: string; start_date?: string };
-    if (!body.farm_id || !body.start_date) return reply.status(400).send({ error: "farm_id and start_date required" });
+  // Employment status changes and history are owner-only. The former
+  // worker-ID-only routes were unauthenticated and could not prove farm scope.
+  app.post("/api/farms/:farmId/workers/:workerId/hire", async (req, reply) => {
+    const { farmId, workerId } = req.params as { farmId: string; workerId: string };
+    const admin = await requireAdminForFarm(req, reply, farmId);
+    if (!admin) return;
+    if (!(await workerBelongsToFarm(workerId, farmId))) {
+      return reply.status(404).send({ error: "worker not found" });
+    }
+    const body = req.body as { start_date?: string };
+    if (!body.start_date) return reply.status(400).send({ error: "start_date required" });
     try {
-      const res = await startEmployment({ workerId, farmId: body.farm_id, startDate: body.start_date });
-      return res;
-    } catch (e) { return reply.status(409).send({ error: String((e as Error).message) }); }
+      return await startEmployment({ workerId, farmId, startDate: body.start_date });
+    } catch (error) {
+      return reply.status(409).send({ error: String((error as Error).message) });
+    }
   });
 
-  app.post("/api/workers/:workerId/fire", async (req, reply) => {
-    const { workerId } = req.params as { workerId: string };
+  app.post("/api/farms/:farmId/workers/:workerId/fire", async (req, reply) => {
+    const { farmId, workerId } = req.params as { farmId: string; workerId: string };
+    const admin = await requireAdminForFarm(req, reply, farmId);
+    if (!admin) return;
+    if (!(await workerBelongsToFarm(workerId, farmId))) {
+      return reply.status(404).send({ error: "worker not found" });
+    }
     const body = req.body as { end_date?: string; reason?: string };
     if (!body.end_date) return reply.status(400).send({ error: "end_date required (inclusive)" });
     try {
-      const res = await endEmployment({ workerId, endDate: body.end_date, reason: body.reason });
-      return res;
-    } catch (e) { return reply.status(409).send({ error: String((e as Error).message) }); }
+      return await endEmployment({ workerId, endDate: body.end_date, reason: body.reason });
+    } catch (error) {
+      return reply.status(409).send({ error: String((error as Error).message) });
+    }
   });
 
-  app.get("/api/workers/:workerId/employment", async (req) => {
-    const { workerId } = req.params as { workerId: string };
+  app.get("/api/farms/:farmId/workers/:workerId/employment", async (req, reply) => {
+    const { farmId, workerId } = req.params as { farmId: string; workerId: string };
+    const admin = await requireAdminForFarm(req, reply, farmId);
+    if (!admin) return;
+    if (!(await workerBelongsToFarm(workerId, farmId))) {
+      return reply.status(404).send({ error: "worker not found" });
+    }
     const periods = await listEmployment(workerId);
     return { periods };
   });

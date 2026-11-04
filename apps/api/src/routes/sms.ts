@@ -11,6 +11,7 @@ import {
   refreshLiveDailyDeliveryReports,
   updateFarmSettings,
 } from "@tea-ledger/sms";
+import { requireAdminForFarm } from "../admin-auth.js";
 
 function sameWebhookSecret(received: string | undefined, expected: string): boolean {
   if (!received) return false;
@@ -20,13 +21,37 @@ function sameWebhookSecret(received: string | undefined, expected: string): bool
 }
 
 export async function smsRoutes(app: FastifyInstance) {
+  // All operator-facing delivery, settings, and log endpoints are farm-bound
+  // owner controls. Only provider callbacks are exempt and validate themselves.
+  app.addHook("preHandler", async (req, reply) => {
+    const path = req.url.split("?")[0];
+    if (path === "/api/sms/delivery-report" || path === "/api/sms/mobilesasa-delivery-report") return;
+
+    let farmId = (req.params as { farmId?: string } | undefined)?.farmId;
+    if (!farmId && (path === "/api/sms-log" || path === "/api/sms-stats")) {
+      const query = req.query as { farm_id?: string; farmId?: string };
+      farmId = query.farm_id ?? query.farmId;
+      if (!farmId) {
+        await reply.status(400).send({ error: "farm_id is required" });
+        return;
+      }
+    }
+    if (farmId) await requireAdminForFarm(req, reply, farmId);
+  });
+
   // POST /api/sms/delivery-report — Telnyx delivery-status webhook.
-  // Point the Messaging Profile's Outbound webhook here. Terminal status rides on
-  // data.to[].status; event_type (message.sent/delivered/finalized) is the fallback.
-  // NOTE (documented): Telnyx ed25519 signature verification is not enforced yet —
-  // worst case a spoofed report mislabels a status in the log; add signature checks
-  // before multi-farm scale. We always ACK 200 so Telnyx never retry-storms.
+  // Fail closed while the app is mock-only or a verified callback mechanism is
+  // not configured. A public callback must never be able to alter delivery logs.
   app.post("/api/sms/delivery-report", async (req, reply) => {
+    const webhookSecret = process.env.TELNYX_WEBHOOK_SECRET?.trim();
+    if (process.env.SMS_PROVIDER !== "telnyx" || !webhookSecret) {
+      return reply.status(404).send({ ok: false, error: "Telnyx callback is not configured" });
+    }
+    const header = req.headers["x-telnyx-webhook-secret"];
+    const receivedSecret = Array.isArray(header) ? header[0] : header;
+    if (!sameWebhookSecret(receivedSecret, webhookSecret)) {
+      return reply.status(401).send({ ok: false, error: "invalid callback secret" });
+    }
     try {
       const body = req.body as {
         data?: { id?: string; event_type?: string; to?: Array<{ status?: string }> };

@@ -23,7 +23,8 @@ export const eventSchema = z.object({
   device_id: z.string().uuid().optional(),
   author: z.string().min(1),
   event_type: z.string().min(1),
-  payload: z.record(z.unknown()),
+  // Zod v4 requires an explicit key schema for records.
+  payload: z.record(z.string(), z.unknown()),
   business_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   client_timestamp: z.string().datetime(),
   server_received_at: z.string().datetime().optional(),

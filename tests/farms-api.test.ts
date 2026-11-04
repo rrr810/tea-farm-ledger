@@ -4,6 +4,7 @@ import { buildApp } from "../apps/api/src/index.js";
 import { closeDb, getDb, runMigrations } from "@tea-ledger/database";
 
 let app: FastifyInstance;
+const deviceId = "00000000-0000-4000-a000-000000000071";
 
 afterAll(async () => {
   await app?.close();
@@ -19,21 +20,33 @@ beforeAll(async () => {
 });
 
 describe("farm registration identity", () => {
-  it("stores a canonical first-time name and exposes only the narrow display lookup", async () => {
+  it("stores a canonical first-time name and gives only its enrolled device the narrow display lookup", async () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/farms",
-      payload: { name: "  Nandi Tea Estate  " },
+      payload: { name: "  Nandi Tea Estate  ", device_id: deviceId },
     });
 
     expect(created.statusCode).toBe(200);
-    const farm = created.json() as { farm_id: string; name: string };
+    const farm = created.json() as { farm_id: string; name: string; device_token: string };
     expect(farm.farm_id).toMatch(/^[0-9a-f-]{36}$/i);
     expect(farm.name).toBe("Nandi Tea Estate");
+    expect(farm.device_token).toMatch(/^[A-Za-z0-9_-]{30,}$/);
 
+    const anonymousLookup = await app.inject({
+      method: "GET",
+      url: `/api/farms/${farm.farm_id}`,
+    });
+    expect(anonymousLookup.statusCode).toBe(401);
+
+    const headers = {
+      "x-tea-device-id": deviceId,
+      "x-tea-device-token": farm.device_token,
+    };
     const lookup = await app.inject({
       method: "GET",
       url: `/api/farms/${farm.farm_id}`,
+      headers,
     });
     expect(lookup.statusCode).toBe(200);
     expect(lookup.json()).toEqual({ farm_id: farm.farm_id, name: "Nandi Tea Estate" });
@@ -50,6 +63,7 @@ describe("farm registration identity", () => {
     const afterRenameAttempt = await app.inject({
       method: "GET",
       url: `/api/farms/${farm.farm_id}`,
+      headers,
     });
     expect(afterRenameAttempt.json()).toEqual({
       farm_id: farm.farm_id,
@@ -57,12 +71,19 @@ describe("farm registration identity", () => {
     });
   });
 
-  it("rejects blank, control-character, and oversized names before creating a farm", async () => {
+  it("rejects missing device enrolment, blank, control-character, and oversized names before creating a farm", async () => {
+    const missingDevice = await app.inject({
+      method: "POST",
+      url: "/api/farms",
+      payload: { name: "Nandi Tea" },
+    });
+    expect(missingDevice.statusCode).toBe(400);
+
     for (const name of [" ", "Nandi\nTea", "A".repeat(81)]) {
       const response = await app.inject({
         method: "POST",
         url: "/api/farms",
-        payload: { name },
+        payload: { name, device_id: deviceId },
       });
       expect(response.statusCode).toBe(400);
     }

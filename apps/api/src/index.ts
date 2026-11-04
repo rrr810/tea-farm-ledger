@@ -22,7 +22,19 @@ export async function buildApp() {
   // this server boundary. Keep the limit explicit so an oversized request is
   // rejected before it can consume an unbounded serverless function.
   const app = Fastify({ logger: true, bodyLimit: 2_000_000 });
-  await app.register(cors, { origin: true });
+  // The Supervisor PWA and Owner console are served from this exact origin.
+  // Do not reflect arbitrary browser origins for authenticated farm APIs.
+  await app.register(cors, { origin: false });
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "same-origin");
+    reply.header("X-Frame-Options", "DENY");
+    reply.header(
+      "Content-Security-Policy",
+      "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'",
+    );
+    return payload;
+  });
   // Serve PWA static from public if exists (built via vite)
   const candidates = [publicDir, join(process.cwd(), "apps/api/public"), join(process.cwd(), "public")];
   for (const dir of candidates) {
@@ -53,9 +65,9 @@ export async function buildApp() {
   app.register(supervisorRoutes);
   app.register(supervisorsRoutes);
   app.setErrorHandler((err: unknown, _req: unknown, reply: { status: (c: number) => { send: (o: unknown) => void } }) => {
+    // Keep diagnostic detail in Vercel logs, never in a browser/API response.
     (app.log as { error: (e: unknown) => void }).error(err);
-    const msg = err instanceof Error ? err.message : String(err);
-    reply.status(500).send({ error: "internal_error", message: msg });
+    reply.status(500).send({ error: "internal_error" });
   });
   return app;
 }

@@ -107,8 +107,10 @@ export async function cronRoutes(app: FastifyInstance) {
     }) as never;
   });
 
-  // Generic manual trigger for testing idempotency
+  // Generic manual trigger for testing idempotency. It is protected before
+  // redirecting so an unauthenticated caller cannot use it as a cron proxy.
   app.post("/api/cron/trigger", async (req, reply) => {
+    if (!isAuthorized(req as never)) return reply.status(401).send({ error: "unauthorized" });
     const body = req.body as { job?: string; farm_id?: string; date?: string };
     if (!body?.job)
       return reply.status(400).send({ error: "job required: friday-estimate | saturday-reminder" });

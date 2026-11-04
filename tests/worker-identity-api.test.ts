@@ -12,6 +12,8 @@ const password = "identity-test-password";
 const supervisorUserId = "00000000-0000-4000-a000-000000000095";
 const supervisorUsername = "nandi-supervisor";
 const supervisorPassword = "Nandi Supervisor Password 2026";
+const fieldDeviceId = "00000000-0000-4000-a000-000000000097";
+const secondFieldDeviceId = "00000000-0000-4000-a000-000000000098";
 let app: FastifyInstance;
 
 async function loginSupervisor(): Promise<string> {
@@ -82,23 +84,57 @@ describe("worker identity HTTP boundary", () => {
     expect(anonymousCreate.statusCode).toBe(401);
 
     const supervisorToken = await loginSupervisor();
-    const create = await app.inject({
+    const supervisorWithoutDevice = await app.inject({
       method: "POST",
       url: `/api/farms/${farmId}/workers`,
       headers: { authorization: `Bearer ${supervisorToken}` },
+      payload: identityPayload,
+    });
+    expect(supervisorWithoutDevice.statusCode).toBe(401);
+    const enrolled = await app.inject({
+      method: "POST",
+      url: `/api/farms/${farmId}/devices/enroll`,
+      headers: { authorization: `Bearer ${supervisorToken}` },
+      payload: { device_id: fieldDeviceId },
+    });
+    expect(enrolled.statusCode).toBe(200);
+    const { device_token: deviceToken } = enrolled.json() as { device_token: string };
+    expect(deviceToken).toMatch(/^[A-Za-z0-9_-]{30,}$/);
+    const fieldHeaders = {
+      "x-tea-device-id": fieldDeviceId,
+      "x-tea-device-token": deviceToken,
+    };
+    const create = await app.inject({
+      method: "POST",
+      url: `/api/farms/${farmId}/workers`,
+      headers: { authorization: `Bearer ${supervisorToken}`, ...fieldHeaders },
       payload: identityPayload,
     });
     expect(create.statusCode).toBe(200);
     const created = create.json() as { worker_id: string; identity_recorded: boolean };
     expect(created.identity_recorded).toBe(true);
 
+    const anonymousList = await app.inject({
+      method: "GET",
+      url: `/api/farms/${farmId}/workers`,
+    });
+    expect(anonymousList.statusCode).toBe(401);
+    expect(anonymousList.body).not.toContain("87654321");
+
     const publicList = await app.inject({
       method: "GET",
       url: `/api/farms/${farmId}/workers`,
+      headers: fieldHeaders,
     });
     expect(publicList.statusCode).toBe(200);
     expect(publicList.body).not.toContain("87654321");
     expect(publicList.body).not.toContain("national_id");
+    const deviceRow = await (await getDb()).query(
+      "SELECT access_token_hash FROM devices WHERE device_id=$1",
+      [fieldDeviceId],
+    );
+    expect((deviceRow.rows[0] as { access_token_hash: string }).access_token_hash).toMatch(/^device:/);
+    expect((deviceRow.rows[0] as { access_token_hash: string }).access_token_hash).not.toBe(deviceToken);
 
     const unauthenticated = await app.inject({
       method: "GET",
@@ -189,7 +225,7 @@ describe("worker identity HTTP boundary", () => {
     const duplicateId = await app.inject({
       method: "POST",
       url: `/api/farms/${farmId}/workers`,
-      headers: { authorization: `Bearer ${supervisorToken}` },
+      headers: { authorization: `Bearer ${supervisorToken}`, ...fieldHeaders },
       payload: {
         full_name: "Would Be Partial Worker",
         phone: "0712345699",
@@ -202,6 +238,7 @@ describe("worker identity HTTP boundary", () => {
     const afterDuplicate = await app.inject({
       method: "GET",
       url: `/api/farms/${farmId}/workers`,
+      headers: fieldHeaders,
     });
     expect(afterDuplicate.body).not.toContain("Would Be Partial Worker");
   });
@@ -228,10 +265,21 @@ describe("worker identity HTTP boundary", () => {
     expect(anonymousCompletion.statusCode).toBe(401);
 
     const supervisorToken = await loginSupervisor();
+    const enrollment = await app.inject({
+      method: "POST",
+      url: `/api/farms/${farmId}/devices/enroll`,
+      headers: { authorization: `Bearer ${supervisorToken}` },
+      payload: { device_id: secondFieldDeviceId },
+    });
+    expect(enrollment.statusCode).toBe(200);
+    const secondFieldHeaders = {
+      "x-tea-device-id": secondFieldDeviceId,
+      "x-tea-device-token": (enrollment.json() as { device_token: string }).device_token,
+    };
     const complete = await app.inject({
       method: "POST",
       url: `/api/farms/${farmId}/workers/${existingWorkerId}/identity`,
-      headers: { authorization: `Bearer ${supervisorToken}` },
+      headers: { authorization: `Bearer ${supervisorToken}`, ...secondFieldHeaders },
       payload: identityPayload,
     });
     expect(complete.statusCode).toBe(200);

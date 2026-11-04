@@ -1,23 +1,66 @@
 import type { FastifyInstance } from "fastify";
 import { getDb } from "@tea-ledger/database";
-import { randomUUID } from "node:crypto";
-import { createHash } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+} from "node:crypto";
+import { promisify } from "node:util";
+import {
+  digestAdminSessionToken,
+  requireAdminForFarm,
+  requireAdminSession,
+} from "../admin-auth.js";
 
-// Simple password hashing: SHA256(salt + password) — adequate for Phase 1 pilot, replace with bcrypt in hardening if needed
-// We store hash as "salt:hash"
-function hashPassword(password: string, salt = randomUUID().slice(0, 16)): string {
-  const h = createHash("sha256").update(salt + password).digest("hex");
-  return `${salt}:${h}`;
+const scrypt = promisify(scryptCallback);
+const ADMIN_SCRYPT_BYTES = 64;
+
+/** New Admin credentials use scrypt. Legacy SHA-256 hashes are upgraded at login. */
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("base64url");
+  const derived = (await scrypt(password, salt, ADMIN_SCRYPT_BYTES)) as Buffer;
+  return `scrypt-v1$${salt}$${derived.toString("base64url")}`;
 }
-function verifyPassword(password: string, stored: string): boolean {
-  const [salt, hash] = stored.split(":");
-  if (!salt || !hash) return false;
-  const h = createHash("sha256").update(salt + password).digest("hex");
-  return h === hash;
+
+async function verifyPassword(
+  password: string,
+  stored: string,
+): Promise<{ valid: boolean; legacy: boolean }> {
+  const [version, salt, encodedExpected, ...extra] = stored.split("$");
+  if (version === "scrypt-v1" && salt && encodedExpected && extra.length === 0) {
+    try {
+      const expected = Buffer.from(encodedExpected, "base64url");
+      const actual = (await scrypt(password, salt, expected.length)) as Buffer;
+      return {
+        valid: expected.length === actual.length && timingSafeEqual(expected, actual),
+        legacy: false,
+      };
+    } catch {
+      return { valid: false, legacy: false };
+    }
+  }
+
+  // Existing pilot accounts used salt:SHA-256(salt + password). Keep one
+  // compatibility verification only so a successful sign-in can upgrade it.
+  const [legacySalt, legacyHash, ...legacyExtra] = stored.split(":");
+  if (!legacySalt || !legacyHash || legacyExtra.length > 0) return { valid: false, legacy: false };
+  const actual = createHash("sha256").update(legacySalt + password).digest("hex");
+  const expected = Buffer.from(legacyHash, "hex");
+  const derived = Buffer.from(actual, "hex");
+  return {
+    valid: expected.length === derived.length && timingSafeEqual(expected, derived),
+    legacy: true,
+  };
 }
 
 function sessionToken(): string {
-  return randomUUID() + "-" + randomUUID();
+  return randomBytes(32).toString("base64url");
+}
+
+function isProduction(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
 }
 
 export async function adminRoutes(app: FastifyInstance) {
@@ -25,7 +68,11 @@ export async function adminRoutes(app: FastifyInstance) {
   async function ensureAdmin() {
     const db = await getDb();
     const adminUser = process.env.ADMIN_USERNAME ?? "admin";
-    const adminPass = process.env.ADMIN_DEFAULT_PASSWORD ?? process.env.ADMIN_PASSWORD ?? "tea-admin-2026";
+    const configuredPassword = process.env.ADMIN_DEFAULT_PASSWORD ?? process.env.ADMIN_PASSWORD;
+    if (!configuredPassword && isProduction()) {
+      throw new Error("ADMIN_DEFAULT_PASSWORD must be configured in production");
+    }
+    const adminPass = configuredPassword ?? "tea-admin-2026"; // development/test only
     const res = await db.query("SELECT user_id, password_hash FROM users WHERE username=$1", [adminUser]);
     if ((res.rows as unknown[]).length > 0) return res.rows[0] as { user_id: string; password_hash: string };
     // Need a farm to attach? Create default farm if none
@@ -39,10 +86,17 @@ export async function adminRoutes(app: FastifyInstance) {
       farmId = (farms.rows as Array<{ farm_id: string }>)[0].farm_id;
     }
     const userId = randomUUID();
-    const hash = hashPassword(adminPass);
+    const hash = await hashPassword(adminPass);
     await db.query("INSERT INTO users (user_id, farm_id, role, username, password_hash) VALUES ($1,$2,'admin',$3,$4)", [userId, farmId, adminUser, hash]);
     return { user_id: userId, password_hash: hash };
   }
+
+  // Every farm-scoped management/reporting route in this plugin is owner-only.
+  app.addHook("preHandler", async (req, reply) => {
+    const farmId = (req.params as { farmId?: string } | undefined)?.farmId;
+    if (!farmId) return;
+    await requireAdminForFarm(req, reply, farmId);
+  });
 
   // POST /api/admin/login {username, password} -> {token, user_id, role}
   app.post("/api/admin/login", async (req, reply) => {
@@ -52,26 +106,33 @@ export async function adminRoutes(app: FastifyInstance) {
     const db = await getDb();
     const res = await db.query("SELECT user_id, farm_id, role, password_hash FROM users WHERE username=$1", [body.username]);
     const user = (res.rows as Array<{ user_id: string; farm_id: string; role: string; password_hash: string }>)[0];
-    if (!user || !verifyPassword(body.password, user.password_hash)) {
+    const verification = user ? await verifyPassword(body.password, user.password_hash) : { valid: false, legacy: false };
+    if (!user || user.role !== "admin" || !verification.valid) {
       return reply.status(401).send({ error: "invalid credentials" });
+    }
+    if (verification.legacy) {
+      await db.query("UPDATE users SET password_hash=$1 WHERE user_id=$2", [
+        await hashPassword(body.password),
+        user.user_id,
+      ]);
     }
     const token = sessionToken();
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(); // 7d
-    await db.query("INSERT INTO sessions (token, user_id, farm_id, role, expires_at) VALUES ($1,$2,$3,$4,$5)", [token, user.user_id, user.farm_id, user.role, expiresAt]);
-    return { ok: true, token, user_id: user.user_id, farm_id: user.farm_id, role: user.role, expires_at: expiresAt };
+    await db.query("INSERT INTO sessions (token, user_id, farm_id, role, expires_at) VALUES ($1,$2,$3,$4,$5)", [
+      digestAdminSessionToken(token),
+      user.user_id,
+      user.farm_id,
+      "admin",
+      expiresAt,
+    ]);
+    return { ok: true, token, user_id: user.user_id, farm_id: user.farm_id, role: "admin", expires_at: expiresAt };
   });
 
   // GET /api/admin/me (token via Authorization Bearer)
   app.get("/api/admin/me", async (req, reply) => {
-    const auth = (req.headers.authorization as string) ?? "";
-    const token = auth.replace(/^Bearer\s+/i, "") || (req.query as { token?: string }).token;
-    if (!token) return reply.status(401).send({ error: "unauthorized" });
-    const db = await getDb();
-    const res = await db.query("SELECT s.token, s.expires_at, u.username, u.role, u.farm_id FROM sessions s JOIN users u ON s.user_id=u.user_id WHERE s.token=$1", [token]);
-    const row = (res.rows as Array<{ token: string; expires_at: string; username: string; role: string; farm_id: string }>)[0];
-    if (!row) return reply.status(401).send({ error: "invalid token" });
-    if (new Date(row.expires_at) < new Date()) return reply.status(401).send({ error: "token expired" });
-    return { ok: true, username: row.username, role: row.role, farm_id: row.farm_id };
+    const session = await requireAdminSession(req, reply);
+    if (!session) return;
+    return { ok: true, username: session.username, role: session.role, farm_id: session.farmId };
   });
 
   // POST /api/admin/logout
@@ -80,7 +141,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const token = auth.replace(/^Bearer\s+/i, "");
     if (token) {
       const db = await getDb();
-      await db.query("DELETE FROM sessions WHERE token=$1", [token]);
+      await db.query("DELETE FROM sessions WHERE token=$1", [digestAdminSessionToken(token)]);
     }
     return { ok: true };
   });
