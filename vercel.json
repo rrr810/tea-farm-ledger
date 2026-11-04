@@ -1,7 +1,7 @@
 {
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "apps/api/public",
-  "installCommand": "npm install --include=dev",
+  "installCommand": "npm ci --include=dev",
   "framework": null,
   "functions": {
     "api/index.js": {
