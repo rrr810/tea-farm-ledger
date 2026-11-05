@@ -21,10 +21,20 @@ export function nextCalendarDate(date: string): string {
   return value.toISOString().slice(0, 10);
 }
 
+export function previousCalendarDate(date: string): string {
+  const value = new Date(`${date}T12:00:00`);
+  value.setDate(value.getDate() - 1);
+  return value.toISOString().slice(0, 10);
+}
+
 /** Date-only business values are interpreted in Africa/Nairobi. */
 export function isSaturdayEAT(date: string): boolean {
   // 09:00 UTC is noon in Nairobi, so it stays within the supplied business day.
   return new Date(`${date}T09:00:00Z`).getUTCDay() === 6;
+}
+
+export function isSundayEAT(date: string): boolean {
+  return new Date(`${date}T09:00:00Z`).getUTCDay() === 0;
 }
 
 /** Sunday is not an operating sheet: a successful Saturday FINAL opens Monday. */
@@ -94,12 +104,25 @@ export function recoverActiveDate(input: {
 }): string {
   if (!input.farmId) return input.today;
 
-  // An older in-memory auto-roll could leave a pointer at the day that was
+  // Older shells advanced a completed Saturday with calendar arithmetic and
+  // persisted Sunday as the active sheet. Sunday is never an operating sheet:
+  // restore Saturday until FINAL is confirmed, or move directly to Monday once
+  // the confirmed FINAL permits advancing past Saturday.
+  let date = input.savedActiveDate ?? input.today;
+  if (isSundayEAT(date) && input.canAdvancePastDate) {
+    const saturday = previousCalendarDate(date);
+    if (isSaturdayEAT(saturday) && input.isDateDone(saturday)) {
+      date = input.canAdvancePastDate(saturday)
+        ? nextOperationalDate(saturday)
+        : saturday;
+    }
+  }
+
+  // An older in-memory auto-roll could also leave a pointer at the day that was
   // subsequently marked Done. Never trust a saved pointer to a closed sheet:
   // advance through any contiguous completed dates until we reach the fresh
   // sheet. With no saved pointer we begin at today, preserving the original
   // one-time migration for old shells that completed today.
-  let date = input.savedActiveDate ?? input.today;
   while (
     input.isDateDone(date) &&
     (input.canAdvancePastDate?.(date) ?? true)

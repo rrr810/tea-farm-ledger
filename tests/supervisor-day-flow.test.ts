@@ -4,6 +4,7 @@ import {
   isSaturdayEAT,
   nextCalendarDate,
   nextOperationalDate,
+  previousCalendarDate,
   orderOutboxForSync,
   recoverActiveDate,
   saturdayFinalGate,
@@ -56,6 +57,25 @@ describe("Supervisor day flow", () => {
   it("advances an ISO calendar date without changing the completed day", () => {
     expect(nextCalendarDate("2026-10-24")).toBe("2026-10-25");
     expect(nextCalendarDate("2026-12-31")).toBe("2027-01-01");
+    expect(previousCalendarDate("2026-10-25")).toBe("2026-10-24");
+    expect(previousCalendarDate("2027-01-01")).toBe("2026-12-31");
+  });
+
+  it("repairs an old Sunday pointer after Saturday Done without skipping FINAL review", () => {
+    expect(recoverActiveDate({
+      farmId: "farm-a",
+      savedActiveDate: "2026-11-29",
+      today: "2026-11-29",
+      isDateDone: date => date === "2026-11-28",
+      canAdvancePastDate: () => false,
+    })).toBe("2026-11-28");
+    expect(recoverActiveDate({
+      farmId: "farm-a",
+      savedActiveDate: "2026-11-29",
+      today: "2026-11-29",
+      isDateDone: date => date === "2026-11-28",
+      canAdvancePastDate: () => true,
+    })).toBe("2026-11-30");
   });
 
   it("holds a completed Saturday until FINAL and opens Monday after confirmation", () => {
