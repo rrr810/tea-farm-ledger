@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc --build tsconfig.json",
+    "build": "tsc --build --force tsconfig.json",
     "typecheck": "tsc --build tsconfig.json",
     "vercel-build": "npm run build && npm run build:pwa && npm run build:admin && npm run build:api-public",
     "test": "vitest run",
