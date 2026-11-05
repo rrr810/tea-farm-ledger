@@ -5,10 +5,12 @@ import {
   applyDeliveryReport,
   applyMobileSasaDeliveryReport,
   getFarmSettings,
+  getLiveSmsTestReadiness,
   getSmsStats,
   listSmsLog,
   mobileSasaDeliveryStatus,
   refreshLiveDailyDeliveryReports,
+  sendLiveOwnerTestSms,
   updateFarmSettings,
 } from "@tea-ledger/sms";
 import { requireAdminForFarm } from "../admin-auth.js";
@@ -80,6 +82,35 @@ export async function smsRoutes(app: FastifyInstance) {
   app.post("/api/farms/:farmId/sms/refresh-delivery", async (req) => {
     const { farmId } = req.params as { farmId: string };
     return refreshLiveDailyDeliveryReports({ farmId });
+  });
+
+  // GET /api/farms/:farmId/sms/test-readiness
+  // Owner-only and read-only: exposes only whether the narrow test route is
+  // configured. It never reveals a recipient, token, provider reference, or
+  // SMS content and cannot create an audit row.
+  app.get("/api/farms/:farmId/sms/test-readiness", async (req) => {
+    const { farmId } = req.params as { farmId: string };
+    return getLiveSmsTestReadiness(farmId);
+  });
+
+  // POST /api/farms/:farmId/sms/test
+  // A deliberately explicit one-message test. It is farm-bound, owner-only,
+  // limited by a Nairobi-date idempotency key, and never addresses workers.
+  app.post("/api/farms/:farmId/sms/test", async (req, reply) => {
+    const { farmId } = req.params as { farmId: string };
+    const body = req.body as { confirmation?: unknown } | undefined;
+    if (body?.confirmation !== "SEND_ONE_OWNER_TEST_SMS") {
+      return reply.status(400).send({
+        error: "explicit confirmation is required before sending one owner test SMS",
+      });
+    }
+    const result = await sendLiveOwnerTestSms({ farmId });
+    return {
+      sent: result.sent,
+      skipped: result.skipped,
+      failed: result.failed,
+      ...(result.reason ? { reason: result.reason } : {}),
+    };
   });
 
   // POST /api/sms/mobilesasa-delivery-report

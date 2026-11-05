@@ -39,6 +39,20 @@ describe("delivery callback lockdown", () => {
       payload: { reference: "ignored", status: "delivered" },
     });
     expect(mobileSasa.statusCode).toBe(404);
+
+    // The owner-only test preflight and send route must never be usable by an
+    // anonymous caller, regardless of any provider configuration.
+    const anonymousPreflight = await app.inject({
+      method: "GET",
+      url: "/api/farms/00000000-0000-4000-a000-000000000811/sms/test-readiness",
+    });
+    expect(anonymousPreflight.statusCode).toBe(401);
+    const anonymousSend = await app.inject({
+      method: "POST",
+      url: "/api/farms/00000000-0000-4000-a000-000000000811/sms/test",
+      payload: { confirmation: "SEND_ONE_OWNER_TEST_SMS" },
+    });
+    expect(anonymousSend.statusCode).toBe(401);
   });
 
   it("requires a configured callback secret before any delivery record can be changed", async () => {

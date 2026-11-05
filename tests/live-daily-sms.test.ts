@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeDb, getDb, runMigrations } from "@tea-ledger/database";
 import {
+  getLiveSmsTestReadiness,
   refreshLiveDailyDeliveryReports,
   sendLiveDailySms,
   sendLiveNoPluckingSms,
+  sendLiveOwnerTestSms,
 } from "../packages/sms/src/live-daily.js";
 
 const farmId = "00000000-0000-4000-a000-000000000811";
@@ -112,6 +114,39 @@ describe("live daily SMS", () => {
     expect(payloads.find((payload) => payload.phone === "+254740793959").message).toContain("no plucking today");
     expect(payloads.every((payload) => payload.message.length <= 160)).toBe(true);
     expect(payloads.map((payload) => payload.phone)).toContain("+254740793959");
+  });
+
+  it("preflights and sends exactly one neutral owner delivery test without contacting workers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: true, responseCode: "0200", messageId: "owner-test-provider", cost: 1 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(getLiveSmsTestReadiness(farmId)).toEqual({ ready: true, reason: null });
+    const first = await sendLiveOwnerTestSms({ farmId, date: "2026-10-26" });
+    expect(first).toEqual({ sent: true, skipped: false, failed: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(payload.message).toContain("Tea Ledger SMS delivery test");
+    expect(payload.message).toContain("No worker record or payroll action was made.");
+
+    const second = await sendLiveOwnerTestSms({ farmId, date: "2026-10-26" });
+    expect(second).toMatchObject({
+      sent: false,
+      skipped: true,
+      failed: false,
+      reason: "A delivery test is already recorded for this date.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const db = await getDb();
+    const rows = await db.query(
+      "SELECT type, status FROM sms_messages WHERE farm_id=$1 AND type='owner-delivery-test-live'",
+      [farmId],
+    );
+    expect(rows.rows).toEqual([{ type: "owner-delivery-test-live", status: "queued" }]);
   });
 
   it("reconciles existing accepted messages through injected read-only DLR lookup without sending", async () => {

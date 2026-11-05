@@ -159,7 +159,7 @@ export async function refreshLiveDailyDeliveryReports(opts: {
        FROM sms_messages
       WHERE farm_id=$1
         AND provider_id IS NOT NULL
-        AND type IN ('daily-worker-live','daily-owner-live','no-plucking-worker-live','no-plucking-owner-live')
+        AND type IN ('daily-worker-live','daily-owner-live','no-plucking-worker-live','no-plucking-owner-live','owner-delivery-test-live')
         AND status IN ('queued','sent')
       ORDER BY created_at ASC
       LIMIT $2`,
@@ -283,6 +283,84 @@ async function noPluckingRecipients(farmId: string, date: string): Promise<Recip
 
 function testOwnerPhone(): string | null {
   return normaliseKenyaPhone(process.env.DAILY_LIVE_SMS_OWNER_TEST_PHONE);
+}
+
+export type LiveSmsTestReadiness = {
+  ready: boolean;
+  reason: string | null;
+};
+
+/**
+ * A deliberately narrow preflight for an owner-approved delivery test. It
+ * exposes only readiness, never a phone number, token, provider reference, or
+ * message body. Calling it cannot create an SMS record or consume a message.
+ */
+export function getLiveSmsTestReadiness(farmId: string): LiveSmsTestReadiness {
+  if (!isLiveDailySmsEnabledForFarm(farmId)) {
+    return { ready: false, reason: "Live daily SMS is not enabled for this farm." };
+  }
+  if (!testOwnerPhone()) {
+    return { ready: false, reason: "The owner test recipient is not configured." };
+  }
+  if (!liveAdapter()) {
+    return { ready: false, reason: "Mobile Sasa is not configured for this deployment." };
+  }
+  return { ready: true, reason: null };
+}
+
+function todayEAT(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")!.value;
+  const month = parts.find((part) => part.type === "month")!.value;
+  const day = parts.find((part) => part.type === "day")!.value;
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Sends exactly one neutral delivery test to the preconfigured owner test
+ * recipient. It never addresses workers, changes payroll, or retries. The
+ * calendar-day job key makes an accidental double click idempotent.
+ */
+export async function sendLiveOwnerTestSms(opts: {
+  farmId: string;
+  /** Tests provide a fixed date; production callers omit it for Nairobi today. */
+  date?: string;
+}): Promise<{
+  sent: boolean;
+  skipped: boolean;
+  failed: boolean;
+  reason?: string;
+}> {
+  const readiness = getLiveSmsTestReadiness(opts.farmId);
+  if (!readiness.ready) {
+    return { sent: false, skipped: true, failed: false, reason: readiness.reason ?? undefined };
+  }
+
+  const to = testOwnerPhone();
+  const adapter = liveAdapter();
+  if (!to || !adapter) {
+    // Defensive fail-closed guard in case the environment changes after the
+    // readiness calculation.
+    return { sent: false, skipped: true, failed: false, reason: "Live SMS configuration changed; recheck readiness." };
+  }
+
+  const date = opts.date ?? todayEAT();
+  const result = await persistOnce({
+    farmId: opts.farmId,
+    jobKey: `${opts.farmId}:${date}:live-owner-delivery-test`,
+    type: "owner-delivery-test-live",
+    to,
+    body: `Tea Ledger SMS delivery test for ${formatDateLabel(date)}. No worker record or payroll action was made.`,
+    adapter,
+  });
+  return result.skipped
+    ? { sent: false, skipped: true, failed: false, reason: "A delivery test is already recorded for this date." }
+    : { sent: result.sent, skipped: false, failed: result.failed };
 }
 
 /**

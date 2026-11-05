@@ -307,6 +307,11 @@ export default function App() {
   const [corrections, setCorrections] = useState<unknown[]>([]);
   const [smsLog, setSmsLog] = useState<unknown[]>([]);
   const [smsRefreshing, setSmsRefreshing] = useState(false);
+  const [smsTestReadiness, setSmsTestReadiness] = useState<{
+    ready: boolean;
+    reason: string | null;
+  } | null>(null);
+  const [smsTestSending, setSmsTestSending] = useState(false);
   const [monthly, setMonthly] = useState<unknown[]>([]);
   const [hardest, setHardest] = useState<unknown[]>([]);
   const [quarter, setQuarter] = useState(() => quarterLabel());
@@ -370,13 +375,14 @@ export default function App() {
     setDashboardLoadedAt(null);
     try {
       const liveWeekStart = currentWeekStartEAT();
-      const [w, pw, cf, cr, sms, mon, hard, au, ra, liveSheet] =
+      const [w, pw, cf, cr, sms, smsTest, mon, hard, au, ra, liveSheet] =
         await Promise.all([
           api.adminWorkers(currentFarm) as Promise<{ workers: WorkerProfileSummary[] }>,
           api.payrollWeeks(currentFarm) as Promise<{ weeks: unknown[] }>,
           api.conflicts(currentFarm) as Promise<{ conflicts: unknown[] }>,
           api.corrections(currentFarm) as Promise<{ corrections: unknown[] }>,
           api.smsLog(currentFarm) as Promise<{ messages: unknown[] }>,
+          api.smsTestReadiness(currentFarm) as Promise<{ ready: boolean; reason: string | null }>,
           api.monthly(currentFarm) as Promise<{ monthly: unknown[] }>,
           api.hardest(currentFarm, quarter) as Promise<{ ranking: unknown[] }>,
           api.auditLog(currentFarm) as Promise<{ logs: unknown[] }>,
@@ -403,6 +409,7 @@ export default function App() {
       setConflicts(cf.conflicts ?? []);
       setCorrections(cr.corrections ?? []);
       setSmsLog(sms.messages ?? []);
+      setSmsTestReadiness(smsTest);
       setMonthly(mon.monthly ?? []);
       setHardest(hard.ranking ?? []);
       setAudit(au.logs ?? []);
@@ -423,6 +430,7 @@ export default function App() {
     // farm changes, even briefly.
     setSelectedWorkerProfile(null);
     setWorkerIdPhotoUrl(null);
+    setSmsTestReadiness(null);
   }, [currentFarm]);
   useEffect(() => {
     const returnToLogin = () => {
@@ -524,6 +532,41 @@ export default function App() {
       toast(String(e));
     } finally {
       setSmsRefreshing(false);
+    }
+  }
+
+  async function sendOneOwnerSmsTest() {
+    if (!currentFarm || smsTestSending || !smsTestReadiness?.ready) return;
+    const approved = window.confirm(
+      "Send exactly one neutral Tea Ledger delivery test to the preconfigured owner test recipient? No worker will be contacted, no payroll record will change, and the app will not retry it automatically.",
+    );
+    if (!approved) return;
+
+    setSmsTestSending(true);
+    try {
+      const result = (await api.sendSmsTest(currentFarm)) as {
+        sent: boolean;
+        skipped: boolean;
+        failed: boolean;
+        reason?: string;
+      };
+      const [latest, readiness] = await Promise.all([
+        api.smsLog(currentFarm) as Promise<{ messages: unknown[] }>,
+        api.smsTestReadiness(currentFarm) as Promise<{ ready: boolean; reason: string | null }>,
+      ]);
+      setSmsLog(latest.messages ?? []);
+      setSmsTestReadiness(readiness);
+      if (result.sent) {
+        toast("One owner delivery test was accepted by the provider. Use Refresh delivery status for the handset outcome.");
+      } else if (result.failed) {
+        toast("The one owner delivery test failed. It will not be retried automatically.");
+      } else {
+        toast(result.reason ?? "The owner delivery test was not sent.");
+      }
+    } catch (error) {
+      toast(String(error));
+    } finally {
+      setSmsTestSending(false);
     }
   }
 
@@ -1274,6 +1317,37 @@ export default function App() {
                 {smsRefreshing ? "Checking delivery…" : "Refresh delivery status"}
               </button>
             </div>
+            <section
+              style={{
+                margin: "12px 0",
+                padding: "10px 12px",
+                borderRadius: 8,
+                border: "1px solid #D5E1D2",
+                background: "#F8FBF6",
+              }}
+            >
+              <strong style={{ display: "block", marginBottom: 4 }}>One-recipient delivery test</strong>
+              <p style={{ margin: "0 0 8px", fontSize: 12, color: "#4A4A42" }}>
+                This can send one neutral test only to the preconfigured owner test recipient. It never contacts workers, changes payroll, or retries automatically.
+              </p>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: smsTestReadiness?.ready ? "#1F6A3C" : "#7B5B1A" }}>
+                  {smsTestReadiness
+                    ? smsTestReadiness.ready
+                      ? "Ready for one owner-approved test."
+                      : smsTestReadiness.reason ?? "Not ready for a delivery test."
+                    : "Checking test readiness…"}
+                </span>
+                <button
+                  className="primary"
+                  onClick={sendOneOwnerSmsTest}
+                  disabled={!smsTestReadiness?.ready || smsTestSending || !currentFarm}
+                  title="Requires an explicit confirmation and sends only one owner test SMS"
+                >
+                  {smsTestSending ? "Sending one test…" : "Send one owner test SMS"}
+                </button>
+              </div>
+            </section>
             <div
               style={{
                 margin: "12px 0",

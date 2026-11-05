@@ -99,6 +99,12 @@ export const api = {
     authenticatedBlob(`/api/farms/${fid}/kg-register/${weekStart}?format=${format}`),
   csvTemplate: (fid: string) => authenticatedBlob(`/api/farms/${fid}/csv-template`),
   refreshSmsDelivery: (fid: string) => req(`/api/farms/${fid}/sms/refresh-delivery`, { method: "POST", body: JSON.stringify({}) }),
+  smsTestReadiness: (fid: string) => req(`/api/farms/${fid}/sms/test-readiness`),
+  sendSmsTest: (fid: string) =>
+    req(`/api/farms/${fid}/sms/test`, {
+      method: "POST",
+      body: JSON.stringify({ confirmation: "SEND_ONE_OWNER_TEST_SMS" }),
+    }),
   conflicts: (fid: string) => req(`/api/farms/${fid}/conflicts`),
   corrections: (fid: string) => req(`/api/farms/${fid}/correction-requests`),
   smsLog: (fid: string) => req(`/api/sms-log?farm_id=${fid}&limit=100`),
