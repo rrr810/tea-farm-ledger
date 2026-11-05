@@ -1,3 +1,5 @@
+import { buildApp } from "../apps/api/dist/index.js";
+
 let app;
 let initializing;
 
@@ -13,44 +15,6 @@ async function loadDatabaseRuntime() {
 async function initializeApp() {
   let stage = "database_module";
   try {
-    // Preview-only, import-only probes identify a packaging failure without
-    // executing a route, querying the database, or exposing an exception.
-    // Production retains the regular minimal startup path.
-    if (process.env.VERCEL_ENV === "preview") {
-      const probes = [
-        ["dependency_fastify", () => import("fastify")],
-        ["dependency_fastify_cors", () => import("@fastify/cors")],
-        ["dependency_fastify_static", () => import("@fastify/static")],
-        ["dependency_pg", () => import("pg")],
-        ["dependency_pglite", () => import("@electric-sql/pglite")],
-        [
-          "runtime_config",
-          () => import("../apps/api/dist/runtime-packages/config/dist/index.js"),
-        ],
-        [
-          "runtime_core",
-          () => import("../apps/api/dist/runtime-packages/core/dist/index.js"),
-        ],
-        ["runtime_database", () => loadDatabaseRuntime()],
-        ["runtime_sms", () => import("../apps/api/dist/runtime-packages/sms/dist/index.js")],
-        ["route_sync", () => import("../apps/api/dist/routes/sync.js")],
-        ["route_farms", () => import("../apps/api/dist/routes/farms.js")],
-        ["route_workers", () => import("../apps/api/dist/routes/workers.js")],
-        ["route_health", () => import("../apps/api/dist/routes/health.js")],
-        ["route_sms", () => import("../apps/api/dist/routes/sms.js")],
-        ["route_cron", () => import("../apps/api/dist/routes/cron.js")],
-        ["route_payroll", () => import("../apps/api/dist/routes/payroll.js")],
-        ["route_admin", () => import("../apps/api/dist/routes/admin.js")],
-        ["route_supervisor", () => import("../apps/api/dist/routes/supervisor.js")],
-        ["route_supervisors", () => import("../apps/api/dist/routes/supervisors.js")],
-      ];
-      for (const [label, load] of probes) {
-        stage = label;
-        await load();
-      }
-    }
-
-    stage = "database_module";
     const { getDb, runMigrations } = await loadDatabaseRuntime();
     stage = "migrations";
     try {
@@ -62,8 +26,6 @@ async function initializeApp() {
       console.error("migrate", error);
     }
 
-    stage = "app_module";
-    const { buildApp } = await import("../apps/api/dist/index.js");
     stage = "app_build";
     const built = await buildApp();
     stage = "app_ready";

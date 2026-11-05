@@ -1,6 +1,5 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import fastifyStatic from "@fastify/static";
 import { getDb, runMigrations } from "@tea-ledger/database";
 import { syncRoutes } from "./routes/sync.js";
 import { farmsRoutes } from "./routes/farms.js";
@@ -35,23 +34,30 @@ export async function buildApp() {
     );
     return payload;
   });
-  // Serve PWA static from public if exists (built via vite)
-  const candidates = [publicDir, join(process.cwd(), "apps/api/public"), join(process.cwd(), "public")];
-  for (const dir of candidates) {
-    if (existsSync(join(dir, "index.html"))) {
-      await app.register(fastifyStatic, { root: dir, prefix: "/", wildcard: false, decorateReply: false });
-      // SPA fallback: serve index.html for non-API routes; /admin/* serves admin app
-      app.get("/*", (req, reply) => {
-        const url = req.url as string;
-        if (url.startsWith("/api") || url.startsWith("/health")) return reply.callNotFound();
-        if (url.startsWith("/admin")) {
-          // Let fastify-static serve /admin assets if file exists, else fallback to admin/index.html
-          if (existsSync(join(dir, "admin", "index.html"))) return reply.sendFile("admin/index.html");
-          return reply.callNotFound();
-        }
-        return reply.sendFile("index.html");
-      });
-      break;
+  // Vercel's filesystem routing serves apps/api/public before this Lambda is
+  // invoked. Avoid loading the CJS static plugin there: its job is redundant
+  // in the serverless runtime and an upstream ESM dependency can otherwise
+  // prevent the API from booting. Local API development keeps the same PWA and
+  // admin fallback behavior through the plugin.
+  if (!process.env.VERCEL && !process.env.VERCEL_ENV) {
+    const { default: fastifyStatic } = await import("@fastify/static");
+    const candidates = [publicDir, join(process.cwd(), "apps/api/public"), join(process.cwd(), "public")];
+    for (const dir of candidates) {
+      if (existsSync(join(dir, "index.html"))) {
+        await app.register(fastifyStatic, { root: dir, prefix: "/", wildcard: false, decorateReply: false });
+        // SPA fallback: serve index.html for non-API routes; /admin/* serves admin app
+        app.get("/*", (req, reply) => {
+          const url = req.url as string;
+          if (url.startsWith("/api") || url.startsWith("/health")) return reply.callNotFound();
+          if (url.startsWith("/admin")) {
+            // Let fastify-static serve /admin assets if file exists, else fallback to admin/index.html
+            if (existsSync(join(dir, "admin", "index.html"))) return reply.sendFile("admin/index.html");
+            return reply.callNotFound();
+          }
+          return reply.sendFile("index.html");
+        });
+        break;
+      }
     }
   }
   app.register(healthRoutes);
