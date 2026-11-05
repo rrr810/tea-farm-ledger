@@ -1,15 +1,39 @@
+export const ADMIN_SESSION_EXPIRED_EVENT = "tea-ledger:admin-session-expired";
+
+let sessionExpiryAnnounced = false;
+
 export function token(): string | null { return localStorage.getItem("admin_token"); }
-export function setToken(t: string) { localStorage.setItem("admin_token", t); }
+export function setToken(t: string) {
+  sessionExpiryAnnounced = false;
+  localStorage.setItem("admin_token", t);
+}
 export function clearToken() { localStorage.removeItem("admin_token"); }
 export function farmId(): string { return localStorage.getItem("farm_id") ?? ""; }
 export function setFarmId(id: string) { localStorage.setItem("farm_id", id); }
+export function clearAdminSession() {
+  clearToken();
+  localStorage.removeItem("farm_id");
+}
+
+function announceExpiredAdminSession(): void {
+  if (sessionExpiryAnnounced) return;
+  sessionExpiryAnnounced = true;
+  clearAdminSession();
+  window.dispatchEvent(new Event(ADMIN_SESSION_EXPIRED_EVENT));
+}
 
 async function req(path: string, opts: RequestInit = {}) {
   const h: Record<string, string> = { "Content-Type": "application/json", ...(opts.headers as Record<string, string> ?? {}) };
-  const t = token();
-  if (t) h["Authorization"] = `Bearer ${t}`;
+  const hadAdminToken = Boolean(token());
   const res = await fetch(path, { ...opts, headers: h });
   if (!res.ok) {
+    // A release or seven-day expiry can invalidate an old browser token. Clear
+    // it centrally and notify the console so sensitive Owner state disappears
+    // instead of leaving a live-looking page with a confusing 401 error.
+    if (res.status === 401 && hadAdminToken && path !== "/api/admin/login") {
+      announceExpiredAdminSession();
+      throw new Error("Your owner session expired. Sign in again.");
+    }
     const txt = await res.text().catch(() => "");
     throw new Error(`${res.status} ${txt}`);
   }
@@ -24,11 +48,16 @@ async function req(path: string, opts: RequestInit = {}) {
  * anchor to a protected API route.
  */
 async function authenticatedBlob(path: string): Promise<Blob> {
+  const hadAdminToken = Boolean(token());
   const res = await fetch(path, {
     headers: { Authorization: `Bearer ${token() ?? ""}` },
     cache: "no-store",
   });
   if (!res.ok) {
+    if (res.status === 401 && hadAdminToken) {
+      announceExpiredAdminSession();
+      throw new Error("Your owner session expired. Sign in again.");
+    }
     const text = await res.text().catch(() => "");
     throw new Error(`${res.status} ${text}`);
   }
@@ -45,11 +74,16 @@ export const api = {
     req(`/api/admin/farms/${fid}/identity-storage-summary`),
   adminWorkerProfile: (fid: string, workerId: string) => req(`/api/admin/farms/${fid}/workers/${workerId}`),
   adminWorkerIdPhoto: async (fid: string, workerId: string) => {
+    const hadAdminToken = Boolean(token());
     const res = await fetch(`/api/admin/farms/${fid}/workers/${workerId}/id-photo`, {
       headers: { Authorization: `Bearer ${token() ?? ""}` },
       cache: "no-store",
     });
     if (!res.ok) {
+      if (res.status === 401 && hadAdminToken) {
+        announceExpiredAdminSession();
+        throw new Error("Your owner session expired. Sign in again.");
+      }
       const text = await res.text().catch(() => "");
       throw new Error(`${res.status} ${text}`);
     }

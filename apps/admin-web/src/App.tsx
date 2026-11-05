@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { api, token, setToken, clearToken, farmId, setFarmId } from "./api.js";
+import {
+  ADMIN_SESSION_EXPIRED_EVENT,
+  api,
+  clearAdminSession,
+  farmId,
+  setFarmId,
+  setToken,
+  token,
+} from "./api.js";
 import { resolveFarmSelection } from "./farmSelection.js";
 import { currentWeekStartEAT } from "./week.js";
 import { SupervisorAccessPanel } from "./SupervisorAccessPanel.js";
@@ -417,6 +425,13 @@ export default function App() {
     setWorkerIdPhotoUrl(null);
   }, [currentFarm]);
   useEffect(() => {
+    const returnToLogin = () => {
+      logout("Your owner session expired. Sign in again.");
+    };
+    window.addEventListener(ADMIN_SESSION_EXPIRED_EVENT, returnToLogin);
+    return () => window.removeEventListener(ADMIN_SESSION_EXPIRED_EVENT, returnToLogin);
+  }, []);
+  useEffect(() => {
     loadFarms();
   }, []);
   useEffect(() => {
@@ -558,14 +573,29 @@ export default function App() {
     }
   }
 
-  function logout() {
-    clearToken();
-    // Do not leave an ID-photo Blob URL or full private profile in the owner
-    // console state after a session ends.
+  function logout(message = "Logged out") {
+    clearAdminSession();
+    // Do not leave a farm selection, private profile, Blob URL, or previously
+    // loaded owner data visible after a manual or automatic session end.
+    setCurrentFarm("");
+    setFarms([]);
+    setWorkers([]);
     setSelectedWorkerProfile(null);
     setWorkerIdPhotoUrl(null);
+    setPayrollWeeks([]);
+    setPayrollSheet(null);
+    setCurrentWeekSheet(null);
+    setLatestLockedSheet(null);
+    setConflicts([]);
+    setCorrections([]);
+    setSmsLog([]);
+    setMonthly([]);
+    setHardest([]);
+    setAudit([]);
+    setRates([]);
+    setCsvPreview(null);
     setTab("login");
-    toast("Logged out");
+    toast(message);
   }
 
   if (tab === "login") {
