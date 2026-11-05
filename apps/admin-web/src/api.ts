@@ -24,7 +24,9 @@ function announceExpiredAdminSession(): void {
 
 async function req(path: string, opts: RequestInit = {}) {
   const h: Record<string, string> = { "Content-Type": "application/json", ...(opts.headers as Record<string, string> ?? {}) };
-  const hadAdminToken = Boolean(token());
+  const t = token();
+  const hadAdminToken = Boolean(t);
+  if (t) h["Authorization"] = `Bearer ${t}`;
   const res = await fetch(path, { ...opts, headers: h });
   if (!res.ok) {
     // A release or seven-day expiry can invalidate an old browser token. Clear

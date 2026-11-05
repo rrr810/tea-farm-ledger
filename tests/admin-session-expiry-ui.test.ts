@@ -38,12 +38,10 @@ describe("owner-console expired-session handling", () => {
       farm_id: "00000000-0000-4000-a000-0000000000a1",
     });
     vi.stubGlobal("localStorage", storage);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response('{"error":"admin session is invalid or expired"}', { status: 401 }),
-      ),
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"error":"admin session is invalid or expired"}', { status: 401 }),
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     const { ADMIN_SESSION_EXPIRED_EVENT, api } = await import(
       "../apps/admin-web/src/api.js"
@@ -52,6 +50,15 @@ describe("owner-console expired-session handling", () => {
     window.addEventListener(ADMIN_SESSION_EXPIRED_EVENT, onExpired);
 
     await expect(api.me()).rejects.toThrow("Your owner session expired. Sign in again.");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/me",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          Authorization: "Bearer stale-token",
+        }),
+      }),
+    );
     expect(storage.getItem("admin_token")).toBeNull();
     expect(storage.getItem("farm_id")).toBeNull();
     expect(onExpired).toHaveBeenCalledTimes(1);
