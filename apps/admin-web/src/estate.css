@@ -138,6 +138,13 @@ button { -webkit-tap-highlight-color: transparent; }
   font-weight: 800 !important;
   box-shadow: 0 7px 13px rgba(21,63,47,.13);
 }
+.admin-shell button.primary:disabled,
+.admin-shell button.secondary:disabled {
+  cursor: not-allowed;
+  opacity: .56;
+  box-shadow: none;
+  filter: grayscale(.2);
+}
 .admin-shell button.secondary {
   min-height: 37px;
   padding: 8px 12px !important;

@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
+import {
+  SUPERVISOR_PASSWORD_MIN_LENGTH,
+  supervisorProvisioningReadiness,
+} from "./supervisorAccess.js";
 
 type SupervisorAccount = {
   user_id: string;
@@ -25,6 +29,7 @@ export function SupervisorAccessPanel({
   const [resetPassword, setResetPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const provisioning = supervisorProvisioningReadiness(username, password, busy);
 
   async function load() {
     if (!farmId) return;
@@ -120,8 +125,9 @@ export function SupervisorAccessPanel({
         />
         <input
           aria-label="New Supervisor password"
+          aria-describedby="supervisor-provision-readiness"
           type="password"
-          placeholder="Temporary password (12+ characters)"
+          placeholder={`Temporary password (${SUPERVISOR_PASSWORD_MIN_LENGTH}+ characters)`}
           autoComplete="new-password"
           value={password}
           disabled={busy}
@@ -130,12 +136,38 @@ export function SupervisorAccessPanel({
         />
         <button
           className="primary"
-          disabled={busy || !username.trim() || password.length < 12}
+          disabled={!provisioning.canProvision}
+          aria-describedby="supervisor-provision-readiness"
+          title={
+            provisioning.needsUsername
+              ? "Enter a Supervisor username first"
+              : provisioning.passwordCharactersRemaining > 0
+                ? `Add ${provisioning.passwordCharactersRemaining} more password character${provisioning.passwordCharactersRemaining === 1 ? "" : "s"}`
+                : undefined
+          }
           onClick={() => void provision()}
         >
-          Provision Supervisor
+          {busy ? "Provisioning…" : "Provision Supervisor"}
         </button>
       </div>
+      <p
+        id="supervisor-provision-readiness"
+        role="status"
+        aria-live="polite"
+        style={{
+          margin: "8px 0 0",
+          color: provisioning.canProvision ? "#35653A" : "#6B6B5E",
+          fontSize: 12,
+        }}
+      >
+        {busy
+          ? "Creating the Supervisor account…"
+          : provisioning.needsUsername
+            ? "Enter a Supervisor username to enable provisioning."
+            : provisioning.passwordCharactersRemaining > 0
+              ? `Password needs ${provisioning.passwordCharactersRemaining} more character${provisioning.passwordCharactersRemaining === 1 ? "" : "s"}; at least ${SUPERVISOR_PASSWORD_MIN_LENGTH} are required.`
+              : `Password meets the ${SUPERVISOR_PASSWORD_MIN_LENGTH}-character minimum. Select Provision Supervisor to continue.`}
+      </p>
 
       {accounts.length === 0 ? (
         <p style={{ color: "#6B6B5E", fontSize: 12 }}>No Supervisor account has been provisioned for this farm.</p>
