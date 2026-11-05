@@ -339,6 +339,15 @@ button { -webkit-tap-highlight-color: transparent; }
 .done-action.is-complete { border-color: #afd0b6 !important; background: #edf5ea !important; color: var(--estate-forest) !important; box-shadow: none !important; }
 .final-action { min-height: 55px !important; border-radius: 14px !important; }
 .final-action.is-available { border-color: #d8a661 !important; background: #fffdf7 !important; color: #764819 !important; }
+.final-action:disabled {
+  border-color: #cbd2cb !important;
+  background: #e8ece7 !important;
+  color: #879087 !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+}
+.final-action.is-pending { border-style: dashed !important; }
 .action-footnote { color: #778277 !important; }
 .saturday-note { color: #9a7041 !important; }
 

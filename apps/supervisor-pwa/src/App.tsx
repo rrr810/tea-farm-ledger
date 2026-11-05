@@ -8,8 +8,13 @@ import {
 } from "@tea-ledger/core";
 import {
   activeDateStorageKey,
+  isSaturdayEAT,
   nextCalendarDate,
+  nextOperationalDate,
+  orderOutboxForSync,
   recoverActiveDate,
+  saturdayFinalGate,
+  saturdayFinalStorageKey,
   shouldAutoSyncOutbox,
 } from "./dayFlow.js";
 import { formatKgUnits, parseKgInput } from "./kgInput.js";
@@ -80,6 +85,11 @@ function activeDateForFarm(farmId: string) {
     today,
     isDateDone: (candidate) =>
       !!localStorage.getItem(`done:${candidate}:${farmId}`),
+    // A closed Saturday remains the review sheet until the server has accepted
+    // that Saturday's FINAL. It must never recover to Sunday on a reload.
+    canAdvancePastDate: (candidate) =>
+      !isSaturdayEAT(candidate) ||
+      localStorage.getItem(saturdayFinalStorageKey(farmId, candidate)) === "confirmed",
   });
   // Migrate both variants of the old in-memory-only auto-roll: a missing
   // pointer and a stale pointer that still names the day just marked Done.
@@ -92,23 +102,6 @@ function activeDateForFarm(farmId: string) {
   }
   return date;
 }
-function isSaturdayEAT(d: string) {
-  const date = new Date(d + "T12:00:00");
-  // Get day of week in Africa/Nairobi
-  const day = new Date(
-    date.toLocaleString("en-US", { timeZone: "Africa/Nairobi" }),
-  ).getDay();
-  // Actually simpler: getUTCDay of 12:00 UTC corresponds to ~15:00 EAT same date
-  // Use Intl for correct
-  const nairobiDay = new Date().toLocaleDateString("en-US", {
-    timeZone: "Africa/Nairobi",
-    weekday: "short",
-  });
-  // Fallback: compute from d directly as EAT date
-  const dow = new Date(d + "T09:00:00Z").getUTCDay(); // 09Z = 12 EAT
-  return dow === 6;
-}
-
 const ID_PHOTO_TARGET_BYTES = 900_000;
 const ID_PHOTO_MAX_SOURCE_BYTES = 8_000_000;
 
@@ -217,6 +210,9 @@ export default function App() {
   const [msgType, setMsgType] = useState<"info" | "error" | "success">("info");
   const [syncing, setSyncing] = useState(false);
   const [dayDone, setDayDone] = useState(false);
+  const [saturdayFinalState, setSaturdayFinalState] = useState<
+    "idle" | "queued" | "confirmed"
+  >("idle");
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -504,11 +500,22 @@ export default function App() {
     const onF = () => setOnline(false);
     window.addEventListener("online", onO);
     window.addEventListener("offline", onF);
-    // Restore last done date check
+    // Restore the closed-day and finalisation state for this farm/date. A
+    // locally queued FINAL stays disabled after a reload until sync confirms it.
     const doneKey = `done:${selectedDate}:${farmId}`;
     setDayDone(!!localStorage.getItem(doneKey));
+    const storedFinal = localStorage.getItem(
+      saturdayFinalStorageKey(farmId, selectedDate),
+    );
+    setSaturdayFinalState(
+      isSaturdayEAT(selectedDate) &&
+        (storedFinal === "queued" || storedFinal === "confirmed")
+        ? storedFinal
+        : "idle",
+    );
     const id = setInterval(async () => {
-      setPending(await db.outbox.count());
+      const outboxItems = await db.outbox.toArray();
+      setPending(outboxItems.length);
       setLastSynced(localStorage.getItem("last_synced"));
       setWorkers(await db.workers.toArray());
       setDaily(await db.daily.where("date").equals(selectedDate).toArray());
@@ -517,6 +524,24 @@ export default function App() {
           `done:${selectedDate}:${localStorage.getItem("farm_id")}`,
         ),
       );
+      if (isSaturdayEAT(selectedDate)) {
+        const queuedFinal = outboxItems.some(
+          (item) =>
+            item.type === "week.submitted" &&
+            item.farm_id === farmId &&
+            item.payload?.business_date === selectedDate,
+        );
+        const finalState = localStorage.getItem(
+          saturdayFinalStorageKey(farmId, selectedDate),
+        );
+        setSaturdayFinalState(
+          finalState === "confirmed"
+            ? "confirmed"
+            : queuedFinal || finalState === "queued"
+              ? "queued"
+              : "idle",
+        );
+      }
     }, 900);
     return () => {
       window.removeEventListener("online", onO);
@@ -570,10 +595,13 @@ export default function App() {
     );
   }
 
-  function scheduleAutoOpenNextDay() {
+  function scheduleAutoOpenNextDay(date = selectedDate) {
+    // Saturday is deliberately held for the FINAL review. It must not roll to
+    // Sunday merely because the daily completion has been saved.
+    if (isSaturdayEAT(date)) return;
     // Store the next sheet before the transition: a reload during this short
     // confirmation state still opens the blank day, never the locked one.
-    const next = persistNextDay();
+    const next = persistNextDay(date);
     window.setTimeout(() => {
       activateDate(next);
       setToast(
@@ -1235,8 +1263,9 @@ export default function App() {
       setDayDone(true);
       setToast(`No-plucking day closed — syncing complete day…`, "success");
       if (online) setTimeout(() => void syncNow(false), 600);
-      // Persist before the visual transition, so reload recovery is safe.
-      scheduleAutoOpenNextDay();
+      // Saturday remains open for register review and FINAL; other days roll
+      // to their fresh sheet after the normal confirmation pause.
+      scheduleAutoOpenNextDay(selectedDate);
       return;
     }
     const present = daily.filter((d) => d.present);
@@ -1315,19 +1344,64 @@ export default function App() {
       "success",
     );
     if (online) setTimeout(() => void syncNow(false), 700);
-    // Persist before the visual transition, so reload recovery is safe.
-    scheduleAutoOpenNextDay();
+    // Saturday remains open for register review and FINAL; other days roll
+    // to their fresh sheet after the normal confirmation pause.
+    scheduleAutoOpenNextDay(selectedDate);
+  }
+
+  function confirmSaturdayFinalisation(date: string, targetFarmId = farmId) {
+    localStorage.setItem(saturdayFinalStorageKey(targetFarmId, date), "confirmed");
+    if (targetFarmId !== farmId || selectedDate !== date) return;
+    setSaturdayFinalState("confirmed");
+    const monday = nextOperationalDate(date);
+    activateDate(monday, targetFarmId);
+    setToast(
+      `Saturday FINAL confirmed — Mon–Sat is locked. Monday ${monday} is ready for a fresh sheet.`,
+      "success",
+    );
   }
 
   async function submitSaturday() {
-    const dow = new Date(selectedDate + "T09:00:00Z").getUTCDay();
-    if (dow !== 6) {
+    const gate = saturdayFinalGate({
+      date: selectedDate,
+      dayDone,
+      submissionState: saturdayFinalState,
+    });
+    if (gate === "not-saturday") {
       setToast(
         `Today is not Saturday (${selectedDate}) — FINAL is only on Saturday`,
         "info",
       );
       return;
     }
+    if (gate === "saturday-not-done") {
+      setToast("Complete Saturday with Done before submitting FINAL.", "error");
+      return;
+    }
+    if (gate === "queued") {
+      setToast("Saturday FINAL is already queued. Connect and sync to confirm the lock.", "info");
+      return;
+    }
+    if (gate === "confirmed") {
+      setToast("This Saturday FINAL was already confirmed. Monday is the next fresh sheet.", "info");
+      return;
+    }
+
+    // Protect upgraded devices that may already have a historical FINAL queued
+    // before this version stored the local finalisation marker.
+    const alreadyQueued = (await db.outbox.toArray()).some(
+      (item) =>
+        item.type === "week.submitted" &&
+        item.farm_id === farmId &&
+        item.payload?.business_date === selectedDate,
+    );
+    if (alreadyQueued) {
+      localStorage.setItem(saturdayFinalStorageKey(farmId, selectedDate), "queued");
+      setSaturdayFinalState("queued");
+      setToast("Saturday FINAL is already queued. Connect and sync to confirm the lock.", "info");
+      return;
+    }
+
     const device_id = getDeviceId();
     const ev = {
       event_id: crypto.randomUUID(),
@@ -1346,11 +1420,13 @@ export default function App() {
       createdAt: new Date().toISOString(),
       type: "week.submitted",
     });
+    localStorage.setItem(saturdayFinalStorageKey(farmId, selectedDate), "queued");
+    setSaturdayFinalState("queued");
     setToast(
-      `Saturday FINAL sent — week Mon–Sat locked. Late edits become next-week adjustment.`,
-      "success",
+      "Saturday FINAL queued. It will lock Mon–Sat only after Saturday Done and a successful sync.",
+      "info",
     );
-    if (online) setTimeout(() => syncNow(false), 600);
+    if (online) setTimeout(() => void syncNow(false), 150);
   }
 
   async function syncNow(manual = true) {
@@ -1372,6 +1448,10 @@ export default function App() {
         return;
       }
       setSyncing(true);
+      // Random UUID primary keys do not preserve insertion order in Dexie. FINAL
+      // is deliberately last so the server sees Saturday's completed-day batch
+      // before evaluating the irreversible week lock.
+      all = orderOutboxForSync(all);
       const events = all.map((o) => o.payload);
       const res = await fetch("/api/sync/push", {
         method: "POST",
@@ -1393,6 +1473,18 @@ export default function App() {
           : `Auto-synced ✓ ${data.accepted} sent — data safe in cloud`,
         "success",
       );
+      // A successful response means each queued FINAL was newly accepted or was
+      // already present as an idempotent retry. Only now may the device leave
+      // Saturday and open the next Monday sheet.
+      for (const item of all) {
+        if (
+          item.type === "week.submitted" &&
+          typeof item.payload?.business_date === "string" &&
+          isSaturdayEAT(item.payload.business_date)
+        ) {
+          confirmSaturdayFinalisation(item.payload.business_date, item.farm_id);
+        }
+      }
     } catch (e) {
       const txt = String(e);
       if (txt.includes("uuid") || txt.includes("internal_error")) {
@@ -1423,6 +1515,12 @@ export default function App() {
       .map((d) => ({ kgUnits: d.kgUnits, rateCentsPerKg: 900 })),
   );
   const saturday = isSaturdayEAT(selectedDate);
+  const finalGate = saturdayFinalGate({
+    date: selectedDate,
+    dayDone,
+    submissionState: saturdayFinalState,
+  });
+  const finalEnabled = finalGate === "ready";
 
   return (
     <div className="supervisor-shell">
@@ -1758,35 +1856,76 @@ export default function App() {
         )}
 
         <div className="daily-actions">
+          {/* Saturday stays visible for register review. FINAL, not this
+              control, opens the fresh Monday sheet after cloud confirmation. */}
           <button
             className={`done-action ${dayDone ? "is-complete" : ""}`}
             data-testid="confirm-day"
             onClick={dayDone ? startNextDay : markDoneForDay}
+            disabled={dayDone && saturday}
+            title={
+              dayDone && saturday
+                ? "Review Saturday, then submit FINAL"
+                : undefined
+            }
           >
             {dayDone
-              ? `Start next day → ${nextCalendarDate(selectedDate)}`
+              ? saturday
+                ? finalGate === "confirmed"
+                  ? "Saturday FINAL confirmed"
+                  : "Saturday complete — review then FINAL"
+                : `Start next day → ${nextCalendarDate(selectedDate)}`
               : noPlucking
                 ? "Confirm no-plucking day"
                 : "✓ Done for the day"}
           </button>
           <button
-            className={`final-action ${saturday ? "is-available" : ""}`}
+            className={`final-action ${finalEnabled ? "is-available" : ""} ${
+              finalGate === "queued" ? "is-pending" : ""
+            }`}
             data-testid="submit-saturday"
             onClick={submitSaturday}
-            title={saturday ? "Lock week Mon–Sat" : "Only on Saturday"}
+            disabled={!finalEnabled}
+            title={
+              finalGate === "not-saturday"
+                ? "Available only on Saturday"
+                : finalGate === "saturday-not-done"
+                  ? "Complete Saturday with Done first"
+                  : finalGate === "queued"
+                    ? "FINAL is awaiting a successful sync"
+                    : finalGate === "confirmed"
+                      ? "This week is already finalized"
+                      : "Lock this Mon–Sat week after review"
+            }
           >
-            Submit Saturday FINAL
+            {finalGate === "queued"
+              ? "Saturday FINAL queued"
+              : finalGate === "confirmed"
+                ? "Saturday FINAL confirmed"
+                : "Submit Saturday FINAL"}
           </button>
         </div>
         <div className="action-footnote">
-          {dayDone
-            ? "Completed days stay locked to protect the daily record. Start the next day for a fresh sheet."
-            : "Worker changes auto-sync when online. Tap Done to queue the complete day — no half-day kg is sent."}
+          {saturday && finalGate === "saturday-not-done"
+            ? "Finish Saturday with Done first. The final lock stays unavailable until that complete day is queued."
+            : saturday && finalGate === "queued"
+              ? "FINAL is queued, not yet locked. Keep this Saturday sheet open until Sync confirms it."
+              : saturday && finalGate === "ready"
+                ? "Saturday is complete. Review the register, then submit FINAL to lock Mon–Sat and open Monday."
+                : dayDone
+                  ? "Completed days stay locked to protect the daily record. Start the next day for a fresh sheet."
+                  : "Worker changes auto-sync when online. Tap Done to queue the complete day — no half-day kg is sent."}
         </div>
         <div className="saturday-note">
-          {saturday
-            ? "Saturday FINAL is available for this selected date; it locks only this Mon-Sat week."
-            : "Saturday FINAL is disabled only because the selected date is not Saturday. A prior lock does not disable later Saturdays."}
+          {finalGate === "not-saturday"
+            ? "Saturday FINAL is greyed out Monday–Friday. It becomes available only after Saturday Done."
+            : finalGate === "saturday-not-done"
+              ? "Saturday FINAL is greyed out until Saturday Done is complete."
+              : finalGate === "queued"
+                ? "Saturday FINAL is waiting for a successful sync; it has not locked the week yet."
+                : finalGate === "confirmed"
+                  ? "This Saturday was finalized. The next working sheet is Monday."
+                  : "Saturday FINAL is available after Done; it locks only this Mon–Sat week."}
         </div>
 
         <section className="worker-manager">

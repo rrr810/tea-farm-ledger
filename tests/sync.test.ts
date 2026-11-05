@@ -29,6 +29,19 @@ function registeredEvent(id = generateEventId()) {
   };
 }
 
+function saturdayDoneEvent(date: string, id = generateEventId()) {
+  return {
+    event_id: id,
+    farm_id: farmId,
+    device_id: deviceId,
+    author: "supervisor-1",
+    event_type: "day.confirmed",
+    payload: { date, totalKgUnits: 0, pickerCount: 0 },
+    business_date: date,
+    client_timestamp: new Date().toISOString(),
+  };
+}
+
 function ymd(value: unknown): string {
   return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
 }
@@ -290,6 +303,41 @@ describe("sync idempotency and cursor", () => {
     expect((q.rows as Array<{ conflict_flag: boolean }>)[0].conflict_flag).toBe(true);
   });
 
+  it("rejects an early or non-Saturday FINAL, and processes a same-batch Saturday Done first", async () => {
+    const weekEnd = "2026-12-12";
+    const missingDone = {
+      event_id: generateEventId(),
+      farm_id: farmId,
+      device_id: deviceId,
+      author: "supervisor-1",
+      event_type: "week.submitted",
+      payload: {},
+      business_date: weekEnd,
+      client_timestamp: new Date().toISOString(),
+    };
+    await expect(pushEvents([missingDone], db)).rejects.toThrow(
+      "Complete Saturday with Done before submitting FINAL",
+    );
+
+    const nonSaturday = { ...missingDone, event_id: generateEventId(), business_date: "2026-12-11" };
+    await expect(pushEvents([nonSaturday], db)).rejects.toThrow("FINAL is allowed only on Saturday");
+
+    const completedSaturday = saturdayDoneEvent(weekEnd);
+    const final = { ...missingDone, event_id: generateEventId() };
+    // Deliberately reversed: the database layer must still handle Done before
+    // FINAL, rather than depending on a caller's array order.
+    const result = await pushEvents([final, completedSaturday], db);
+    expect(result.accepted).toBe(2);
+    expect(result.acceptedEventIds).toEqual(
+      expect.arrayContaining([completedSaturday.event_id, final.event_id]),
+    );
+    const lock = await db.query(
+      "SELECT status FROM pay_weeks WHERE farm_id=$1 AND week_start=$2",
+      [farmId, "2026-12-07"],
+    );
+    expect((lock.rows as Array<{ status: string }>)[0].status).toBe("locked");
+  });
+
   it("late events for locked week flagged as correction", async () => {
     const weekStart = "2026-11-23";
     const weekEnd = "2026-11-28";
@@ -303,7 +351,7 @@ describe("sync idempotency and cursor", () => {
       business_date: weekEnd,
       client_timestamp: new Date().toISOString(),
     };
-    await pushEvents([lockEv], db);
+    await pushEvents([saturdayDoneEvent(weekEnd), lockEv], db);
     const check = await db.query("SELECT status FROM pay_weeks WHERE farm_id=$1 AND week_start=$2", [farmId, weekStart]);
     expect((check.rows as Array<{ status: string }>)[0].status).toBe("locked");
     const late = {

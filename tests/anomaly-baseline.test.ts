@@ -46,6 +46,17 @@ async function logPluck(workerId: string, date: string, kgUnits: number, present
 }
 
 async function submitWeek(weekStart: string) {
+  const weekEnd = getWeekEndSaturday(weekStart);
+  const completedSaturday = {
+    event_id: generateEventId(),
+    farm_id: farmId,
+    device_id: deviceId,
+    author: "supervisor",
+    event_type: "day.confirmed",
+    payload: { date: weekEnd, totalKgUnits: 0, pickerCount: 0 },
+    business_date: weekEnd,
+    client_timestamp: new Date().toISOString(),
+  };
   const ev = {
     event_id: generateEventId(),
     farm_id: farmId,
@@ -53,10 +64,10 @@ async function submitWeek(weekStart: string) {
     author: "supervisor",
     event_type: "week.submitted",
     payload: {},
-    business_date: getWeekEndSaturday(weekStart),
+    business_date: weekEnd,
     client_timestamp: new Date().toISOString(),
   };
-  await pushEvents([ev as never], db as never);
+  await pushEvents([completedSaturday as never, ev as never], db as never);
 }
 
 beforeAll(async () => {

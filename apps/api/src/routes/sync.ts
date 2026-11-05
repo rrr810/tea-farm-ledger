@@ -93,7 +93,7 @@ export async function syncRoutes(app: FastifyInstance) {
             await sendDailyOwnerSms({ farmId: ev.farm_id, date });
           }
         }
-        if (ev.event_type === "week.submitted") {
+        if (ev.event_type === "week.submitted" && acceptedEventIds.has(ev.event_id)) {
           const { sendWeeklyReceipts } = await import("@tea-ledger/sms");
           const { getWeekStartMonday } = await import("@tea-ledger/core");
           const weekStart = getWeekStartMonday(ev.business_date);

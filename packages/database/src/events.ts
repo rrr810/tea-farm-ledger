@@ -34,6 +34,11 @@ const WORKER_PROJECTION_EVENTS = new Set([
   "employment.ended",
 ]);
 
+/** A caller may keep the event queued and ask staff to finish Saturday first. */
+class WeekFinalisationPreconditionError extends Error {
+  readonly statusCode = 409;
+}
+
 /**
  * Store immutable events first, then materialize the worker and employment
  * read-models that the Admin and payroll views query. The PWA can sync its
@@ -49,7 +54,10 @@ export async function pushEvents(events: LedgerEvent[], dbClient?: Awaited<Retur
   let conflicts = 0;
   const workerTargets = new Map<string, WorkerProjectionTarget>();
 
-  for (const ev of events) {
+  // Never let a client-controlled array order place FINAL ahead of the
+  // Saturday completion event that accompanies it. The client also orders its
+  // Dexie outbox, but the server repeats this invariant for every caller.
+  for (const ev of orderEventsForWeekFinalisation(events)) {
     const exists = await db.query("SELECT event_id FROM events WHERE event_id = $1", [ev.event_id]);
     if ((exists.rows as unknown[]).length > 0) {
       duplicates++;
@@ -66,6 +74,15 @@ export async function pushEvents(events: LedgerEvent[], dbClient?: Awaited<Retur
     const isLocked = (lockedCheck.rows as Array<{ status: string }>)[0]?.status === "locked";
     let correctionFlag = false;
     let conflictFlag = false;
+
+    if (ev.event_type === "week.submitted") {
+      // An identical retry returned above as a duplicate. A fresh FINAL for an
+      // already locked week is never a second authorization to lock or message.
+      if (isLocked) {
+        throw new WeekFinalisationPreconditionError("This Mon–Sat week is already finalized");
+      }
+      await assertSaturdayFinalisationAllowed(ev, db);
+    }
 
     if (isLocked && !["week.submitted", "correction.requested"].includes(ev.event_type)) {
       correctionFlag = true;
@@ -398,6 +415,47 @@ function isDate(value: string): boolean {
 
 function isTimestamp(value: string): boolean {
   return !Number.isNaN(Date.parse(value));
+}
+
+/** Give every non-final event precedence while preserving its input order. */
+function orderEventsForWeekFinalisation(events: readonly LedgerEvent[]): LedgerEvent[] {
+  return events
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => {
+      const leftIsFinal = left.event.event_type === "week.submitted";
+      const rightIsFinal = right.event.event_type === "week.submitted";
+      if (leftIsFinal !== rightIsFinal) return leftIsFinal ? 1 : -1;
+      return left.index - right.index;
+    })
+    .map(({ event }) => event);
+}
+
+/** A pay-week lock may only be requested on its Saturday after that day closes. */
+async function assertSaturdayFinalisationAllowed(
+  event: LedgerEvent,
+  db: Awaited<ReturnType<typeof getDb>>,
+): Promise<void> {
+  if (!isSaturdayBusinessDate(event.business_date)) {
+    throw new WeekFinalisationPreconditionError("FINAL is allowed only on Saturday");
+  }
+  const saturdayCompletion = await db.query(
+    `SELECT event_id
+       FROM events
+      WHERE farm_id=$1
+        AND business_date=$2
+        AND event_type IN ('day.confirmed', 'day.plucking_set')
+        AND COALESCE(correction_flag, false)=false
+        AND COALESCE(conflict_flag, false)=false
+      LIMIT 1`,
+    [event.farm_id, event.business_date],
+  );
+  if ((saturdayCompletion.rows as unknown[]).length === 0) {
+    throw new WeekFinalisationPreconditionError("Complete Saturday with Done before submitting FINAL");
+  }
+}
+
+function isSaturdayBusinessDate(date: string): boolean {
+  return new Date(`${date}T09:00:00Z`).getUTCDay() === 6;
 }
 
 function getWeekStart(dateStr: string): string {
