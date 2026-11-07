@@ -127,6 +127,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ password }),
     }),
+  createFieldDeviceLinkCode: (fid: string) =>
+    req(`/api/admin/farms/${fid}/field-device-link-codes`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   csvPreview: (fid: string, csv: string) => req(`/api/farms/${fid}/csv-import/preview`, { method: "POST", body: JSON.stringify({ csv }) }),
   csvCommit: (fid: string, csv: string) => req(`/api/farms/${fid}/csv-import/commit`, { method: "POST", body: JSON.stringify({ csv }) }),
 };

@@ -6,6 +6,7 @@ import {
   sendLiveDailySms,
   sendLiveNoPluckingSms,
   sendLiveOwnerTestSms,
+  sendLiveWeeklyOwnerSms,
 } from "../packages/sms/src/live-daily.js";
 
 const farmId = "00000000-0000-4000-a000-000000000811";
@@ -114,6 +115,59 @@ describe("live daily SMS", () => {
     expect(payloads.find((payload) => payload.phone === "+254740793959").message).toContain("no plucking today");
     expect(payloads.every((payload) => payload.message.length <= 160)).toBe(true);
     expect(payloads.map((payload) => payload.phone)).toContain("+254740793959");
+  });
+
+  it("sends Grandpa's detailed Saturday report only for a server-locked week and never duplicates it", async () => {
+    const db = await getDb();
+    const weekStart = "2026-11-23";
+    const weekEnd = "2026-11-28";
+    const deviceId = "00000000-0000-4000-a000-000000000816";
+    await db.query(
+      `INSERT INTO events (event_id, farm_id, device_id, author, event_type, payload, business_date, client_timestamp)
+       VALUES
+         ($1,$2,$3,'supervisor','pluck.logged',$4::jsonb,$5,NOW()),
+         ($6,$2,$3,'supervisor','pluck.logged',$7::jsonb,$5,NOW())`,
+      [
+        "00000000-0000-4000-a000-000000000821",
+        farmId,
+        deviceId,
+        JSON.stringify({ worker_id: workerA, kg_units: 450, present: true }),
+        weekStart,
+        "00000000-0000-4000-a000-000000000822",
+        JSON.stringify({ worker_id: workerB, kg_units: 450, present: true }),
+      ],
+    );
+    await db.query(
+      "INSERT INTO pay_weeks (farm_id, week_start, week_end, status, locked_at) VALUES ($1,$2,$3,'locked',NOW())",
+      [farmId, weekStart, weekEnd],
+    );
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: true, responseCode: "0200", messageId: "weekly-owner-provider", cost: 2 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = await sendLiveWeeklyOwnerSms({ farmId, weekStart });
+    expect(first.skipped).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(payload.message).toContain("FINAL 1/1");
+    expect(payload.message).toContain("Anne K 45.0kg KES405");
+    expect(payload.message).toContain("Maggie Jep 45.0kg KES405");
+    expect(payload.message).toContain("90.0kg, KES810 due.");
+
+    const second = await sendLiveWeeklyOwnerSms({ farmId, weekStart });
+    expect(second.skipped).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const rows = await db.query(
+      "SELECT type, status, segments FROM sms_messages WHERE farm_id=$1 AND type='weekly-owner-live'",
+      [farmId],
+    );
+    expect(rows.rows).toEqual([
+      expect.objectContaining({ type: "weekly-owner-live", status: "queued", segments: 2 }),
+    ]);
   });
 
   it("preflights and sends exactly one neutral owner delivery test without contacting workers", async () => {

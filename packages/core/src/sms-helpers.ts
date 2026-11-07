@@ -148,6 +148,57 @@ export function buildCompactDailyOwnerSms(opts: {
   return { body, segments: countSegments(body), gsm7: isGsm7(body) };
 }
 
+export type WeeklyOwnerPayLine = {
+  name: string;
+  /** Tenths of a kg, including any approved payable adjustment for the week. */
+  kgUnits: number;
+  /** Final, per-worker rounded amount due in Kenyan shillings. */
+  amountKes: number;
+};
+
+/**
+ * Builds the FINAL Saturday owner report in bounded GSM-7 messages. Every
+ * active worker's payable kg and final amount is retained; long rosters are
+ * split rather than silently truncated. Each returned body fits at most three
+ * billed SMS parts, and callers make every numbered part independently
+ * idempotent.
+ */
+export function buildDetailedWeeklyOwnerSmsParts(opts: {
+  weekLabel: string;
+  lines: WeeklyOwnerPayLine[];
+  totalKgUnits: number;
+  totalAmountKes: number;
+}): Array<{ body: string; segments: number; gsm7: boolean }> {
+  const label = compactSmsText(opts.weekLabel, 24) || "weekly";
+  const rows = [...opts.lines]
+    .sort((a, b) => a.name.localeCompare(b.name, "en"))
+    .map((line) => `${compactSmsText(line.name, 22)} ${kgText(line.kgUnits)}kg KES${Math.round(line.amountKes)}`);
+  const header = `${label} FINAL weekly pay.`;
+  const totals = `TOTAL ${opts.lines.length} workers: ${kgText(opts.totalKgUnits)}kg, KES${Math.round(opts.totalAmountKes)} due.`;
+
+  // Reserve enough prefix space for a large numbered report before deciding a
+  // row belongs in a chunk. This keeps the actual numbered message within the
+  // three-part cap even after its final total part count is known.
+  const worstPrefix = "Tea Ledger FINAL 999/999: ";
+  const chunks: string[] = [];
+  let current = "";
+  for (const item of [header, ...rows, totals]) {
+    const candidate = current ? `${current}; ${item}` : item;
+    if (current && !fitsInSegments(`${worstPrefix}${candidate}`, 3)) {
+      chunks.push(current);
+      current = item;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+
+  return chunks.map((chunk, index) => {
+    const body = `Tea Ledger FINAL ${index + 1}/${chunks.length}: ${chunk}`;
+    return { body, segments: countSegments(body), gsm7: isGsm7(body) };
+  });
+}
+
 /** Compact no-plucking summary for the owner/test recipient. */
 export function buildDailyNoPluckingSms(opts: {
   dateLabel: string;

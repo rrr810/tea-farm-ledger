@@ -12,6 +12,7 @@ import { resolveFarmSelection } from "./farmSelection.js";
 import { currentWeekStartEAT } from "./week.js";
 import { SupervisorAccessPanel } from "./SupervisorAccessPanel.js";
 import { IdentitySafetyPanel } from "./IdentitySafetyPanel.js";
+import { FieldDeviceLinkPanel } from "./FieldDeviceLinkPanel.js";
 
 type Tab =
   | "login"
@@ -1726,6 +1727,7 @@ export default function App() {
             </table>
             <RateForm farmId={currentFarm} onDone={loadDashboard} />
             <SupervisorAccessPanel farmId={currentFarm} onDone={loadDashboard} />
+            <FieldDeviceLinkPanel farmId={currentFarm} />
             <IdentitySafetyPanel farmId={currentFarm} />
           </div>
         )}

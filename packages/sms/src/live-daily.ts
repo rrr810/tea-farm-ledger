@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { getDb } from "@tea-ledger/database";
+import { getDb, getPayrollData } from "@tea-ledger/database";
 import {
   buildCompactDailyOwnerSms,
   buildDailyAbsentSms,
   buildDailyNoPluckingSms,
   buildDailyWorkerNoPluckingSms,
   buildDailyWorkerSms,
+  buildDetailedWeeklyOwnerSmsParts,
   calculateWorkerWeekPayKes,
+  computePayrollSheet,
   countSegments,
+  getWeekEndSaturday,
 } from "@tea-ledger/core";
 import {
   createMobileSasaAdapter,
@@ -159,7 +162,7 @@ export async function refreshLiveDailyDeliveryReports(opts: {
        FROM sms_messages
       WHERE farm_id=$1
         AND provider_id IS NOT NULL
-        AND type IN ('daily-worker-live','daily-owner-live','no-plucking-worker-live','no-plucking-owner-live','owner-delivery-test-live')
+        AND type IN ('daily-worker-live','daily-owner-live','no-plucking-worker-live','no-plucking-owner-live','weekly-owner-live','owner-delivery-test-live')
         AND status IN ('queued','sent')
       ORDER BY created_at ASC
       LIMIT $2`,
@@ -434,6 +437,80 @@ export async function sendLiveDailySms(opts: { farmId: string; date: string }) {
     owner: ownerResult,
     totalKgUnits,
     totalPayEstimateKes,
+  } as const;
+}
+
+/**
+ * Sends the final, detailed Mon-Sat payroll report to the configured owner
+ * recipient only after the server has locked the week. It never contacts
+ * workers, and every numbered message part has its own stable idempotency key.
+ */
+export async function sendLiveWeeklyOwnerSms(opts: { farmId: string; weekStart: string }) {
+  if (!isLiveDailySmsEnabledForFarm(opts.farmId)) {
+    return { skipped: true, reason: "live daily SMS disabled" } as const;
+  }
+  const ownerPhone = testOwnerPhone();
+  if (!ownerPhone) {
+    return { skipped: true, reason: "daily owner test phone is not configured" } as const;
+  }
+  const adapter = liveAdapter();
+  if (!adapter) {
+    return { skipped: true, reason: "Mobile Sasa token is not configured" } as const;
+  }
+
+  const weekEnd = getWeekEndSaturday(opts.weekStart);
+  const payrollData = await getPayrollData({
+    farmId: opts.farmId,
+    weekStart: opts.weekStart,
+    weekEnd,
+  });
+  const sheet = computePayrollSheet({
+    farmId: opts.farmId,
+    weekStart: opts.weekStart,
+    weekEnd,
+    status: payrollData.status,
+    lockedAt: payrollData.lockedAt,
+    workers: payrollData.workers,
+    plucksByWorker: payrollData.plucksByWorker,
+    pluckingDays: payrollData.pluckingDays,
+    rates: payrollData.rates,
+    adjustmentsByWorker: payrollData.adjustmentsByWorker,
+    priorAmountsByWorker: payrollData.priorAmountsByWorker,
+    firstWeekByWorker: payrollData.firstWeekByWorker,
+  });
+  // Calling this helper directly can never turn a local click or an open week
+  // into an SMS. The only production caller is an accepted week.submitted event
+  // after pushEvents has written the week lock.
+  if (sheet.status !== "locked") {
+    return { skipped: true, reason: "week is not server-finalized" } as const;
+  }
+
+  const parts = buildDetailedWeeklyOwnerSmsParts({
+    weekLabel: `Week ${opts.weekStart} to ${weekEnd}`,
+    lines: sheet.lines.map((line) => ({
+      name: line.name,
+      kgUnits: line.totalKgUnits,
+      amountKes: line.amountKes,
+    })),
+    totalKgUnits: sheet.totals.totalKgUnits,
+    totalAmountKes: sheet.totals.totalAmountKes,
+  });
+  const reports: SendResult[] = [];
+  for (const [index, part] of parts.entries()) {
+    reports.push(await persistOnce({
+      farmId: opts.farmId,
+      jobKey: `${opts.farmId}:${opts.weekStart}:live-weekly-owner:${index + 1}`,
+      type: "weekly-owner-live",
+      to: ownerPhone,
+      body: part.body,
+      adapter,
+    }));
+  }
+  return {
+    skipped: false,
+    reports,
+    totalKgUnits: sheet.totals.totalKgUnits,
+    totalAmountKes: sheet.totals.totalAmountKes,
   } as const;
 }
 

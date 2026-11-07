@@ -18,14 +18,30 @@ import {
   shouldAutoSyncOutbox,
 } from "./dayFlow.js";
 import { formatKgUnits, parseKgInput } from "./kgInput.js";
+import {
+  clearNativeSyncState,
+  mirrorNativeDeviceAccess,
+  mirrorNativeQueuedEvents,
+  nativeHasPendingEvents,
+  removeNativeQueuedEvents,
+  takeNativeAcknowledgedEventIds,
+} from "./nativeSync.js";
 
 type Tab = "daily" | "workers";
+type FieldDeviceLinkMode = "credentials" | "code";
 
 type SupervisorIdentitySession = {
   token: string;
   username: string;
   farmId: string;
   expiresAt: string;
+};
+
+type LinkedFieldDevice = {
+  farmId: string;
+  farmName: string;
+  deviceToken: string;
+  supervisorSession?: SupervisorIdentitySession;
 };
 
 const SUPERVISOR_IDENTITY_SESSION_KEY = "supervisor_identity_session";
@@ -192,6 +208,7 @@ export default function App() {
     localStorage.getItem("farm_name") ?? "",
   );
   const [registeringFarm, setRegisteringFarm] = useState(false);
+  const [showNewFarmSetup, setShowNewFarmSetup] = useState(false);
   // The opaque token is issued once per enrolled field browser. It is never
   // displayed in the UI or put into the offline worker/event store.
   const [deviceToken, setDeviceToken] = useState(() => readFieldDeviceToken());
@@ -240,6 +257,16 @@ export default function App() {
   const [supervisorUsername, setSupervisorUsername] = useState("");
   const [supervisorPassword, setSupervisorPassword] = useState("");
   const [supervisorSigningIn, setSupervisorSigningIn] = useState(false);
+  // A field-device relink is intentionally available only for an empty local
+  // register. The server provides the one-time authority; the browser must
+  // independently prove it has no work that could be discarded.
+  const [showFieldDeviceLink, setShowFieldDeviceLink] = useState(false);
+  const [fieldDeviceLinkMode, setFieldDeviceLinkMode] = useState<FieldDeviceLinkMode>("credentials");
+  const [joinFarmName, setJoinFarmName] = useState("");
+  const [joinSupervisorUsername, setJoinSupervisorUsername] = useState("");
+  const [joinSupervisorPassword, setJoinSupervisorPassword] = useState("");
+  const [fieldDeviceLinkCode, setFieldDeviceLinkCode] = useState("");
+  const [linkingFieldDevice, setLinkingFieldDevice] = useState(false);
 
   // Keep both scheduled and manually requested syncs to one in-flight request.
   const autoSyncTimer = useRef<number | null>(null);
@@ -253,6 +280,11 @@ export default function App() {
     setMsg(text);
     setMsgType(type);
     if (text) setTimeout(() => setMsg(""), 5000);
+  }
+
+  async function queueOutbox(item: OutboxEvent, mirrorImmediately = true): Promise<void> {
+    await db.outbox.add(item);
+    if (mirrorImmediately) mirrorNativeQueuedEvents([item]);
   }
 
   function clearPrivateIdentityDrafts() {
@@ -275,6 +307,251 @@ export default function App() {
   function rememberFieldDeviceToken(token: string) {
     localStorage.setItem(FIELD_DEVICE_TOKEN_KEY, token);
     setDeviceToken(token);
+  }
+
+  async function emptyFieldDevicePreflight(): Promise<{
+    outboxCount: number;
+    dailyCount: number;
+    nativePending: boolean;
+  }> {
+    const [outboxCount, dailyCount] = await Promise.all([
+      db.outbox.count(),
+      db.daily.count(),
+    ]);
+    return { outboxCount, dailyCount, nativePending: nativeHasPendingEvents() };
+  }
+
+  function emptyDeviceLinkBlockedMessage(check: {
+    outboxCount: number;
+    dailyCount: number;
+    nativePending: boolean;
+  }): string | null {
+    if (check.outboxCount > 0) {
+      return "This phone has pending uploads. Sync or recover them before linking it to another farm.";
+    }
+    if (check.dailyCount > 0) {
+      return "This phone has locally recorded daily kg. Do not link it until those records are safely recovered.";
+    }
+    if (check.nativePending) {
+      return "This phone has pending native background sync work, or its native queue cannot be verified. Do not link it yet.";
+    }
+    return null;
+  }
+
+  function clearFieldFarmStorageForApprovedLink() {
+    // Leave device_id in place: the server has deliberately rebound this exact
+    // browser device ID and issued a fresh opaque token for it. Remove only
+    // farm-scoped UI state and cache markers after an empty-device preflight.
+    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+      .filter((key): key is string => Boolean(key));
+    for (const key of keys) {
+      if (
+        key === "farm_id" ||
+        key === "farm_name" ||
+        key === FIELD_DEVICE_TOKEN_KEY ||
+        key === "last_synced" ||
+        key.startsWith("active_date:") ||
+        key.startsWith("done:") ||
+        key.startsWith("saturday_final:")
+      ) {
+        localStorage.removeItem(key);
+      }
+    }
+  }
+
+  async function openFieldDeviceLink() {
+    if (!online) {
+      setToast("Connect to the internet to join the correct farm", "error");
+      return;
+    }
+    const blocked = emptyDeviceLinkBlockedMessage(await emptyFieldDevicePreflight());
+    if (blocked) {
+      setToast(blocked, "error");
+      return;
+    }
+    setFieldDeviceLinkMode("credentials");
+    setJoinFarmName("");
+    setJoinSupervisorUsername("");
+    setJoinSupervisorPassword("");
+    setFieldDeviceLinkCode("");
+    setShowFieldDeviceLink(true);
+  }
+
+  async function clearVerifiedEmptyFieldDeviceCache() {
+    const blocked = emptyDeviceLinkBlockedMessage(await emptyFieldDevicePreflight());
+    if (blocked) throw new Error(blocked);
+
+    // The preflight proves there is no queued upload or local daily record.
+    // Clear server-cache-only tables before making a farm-changing request so a
+    // storage failure cannot consume a code or change the server binding.
+    await db.transaction(
+      "rw",
+      db.outbox,
+      db.workers,
+      db.employment,
+      db.daily,
+      db.meta,
+      async () => {
+        await Promise.all([
+          db.outbox.clear(),
+          db.workers.clear(),
+          db.employment.clear(),
+          db.daily.clear(),
+          db.meta.clear(),
+        ]);
+      },
+    );
+    setWorkers([]);
+    setDaily([]);
+    setPending(0);
+  }
+
+  function applyApprovedFieldDeviceLink(link: LinkedFieldDevice) {
+    clearNativeSyncState();
+    clearSupervisorIdentitySession();
+    clearFieldFarmStorageForApprovedLink();
+
+    localStorage.setItem("farm_id", link.farmId);
+    localStorage.setItem("farm_name", link.farmName);
+    rememberFieldDeviceToken(link.deviceToken);
+    const nextDate = activeDateForFarm(link.farmId);
+    setFarmId(link.farmId);
+    setFarmName(link.farmName);
+    setWorkers([]);
+    setDaily([]);
+    setPending(0);
+    setLastSynced(null);
+    setNoPlucking(false);
+    setNoPluckReason("");
+    setSaturdayFinalState("idle");
+    activateDate(nextDate, link.farmId);
+    if (link.supervisorSession) {
+      sessionStorage.setItem(
+        SUPERVISOR_IDENTITY_SESSION_KEY,
+        JSON.stringify(link.supervisorSession),
+      );
+      setSupervisorSession(link.supervisorSession);
+      setSupervisorSessionVerified(true);
+    }
+    setJoinFarmName("");
+    setJoinSupervisorUsername("");
+    setJoinSupervisorPassword("");
+    setFieldDeviceLinkCode("");
+    setShowFieldDeviceLink(false);
+    setTab("daily");
+  }
+
+  async function linkEmptyFieldDevice() {
+    const code = fieldDeviceLinkCode.trim();
+    if (!code) {
+      setToast("Enter the one-time code generated by the Owner/Admin", "error");
+      return;
+    }
+    if (!online) {
+      setToast("Connect to the internet to link this empty field device", "error");
+      return;
+    }
+    setLinkingFieldDevice(true);
+    try {
+      await clearVerifiedEmptyFieldDeviceCache();
+      const response = await fetch("/api/field-devices/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, device_id: getDeviceId() }),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        farm_id?: string;
+        name?: string;
+        device_token?: string;
+        error?: string;
+      };
+      if (
+        !response.ok ||
+        !result.ok ||
+        !result.farm_id ||
+        !result.name?.trim() ||
+        !result.device_token
+      ) {
+        throw new Error(result.error || "Field device linking failed");
+      }
+      applyApprovedFieldDeviceLink({
+        farmId: result.farm_id,
+        farmName: result.name.trim(),
+        deviceToken: result.device_token,
+      });
+      setToast("This empty field device is now linked to the approved farm.", "success");
+    } catch (error) {
+      setToast(String((error as Error).message), "error");
+    } finally {
+      setLinkingFieldDevice(false);
+    }
+  }
+
+  async function joinExistingFarmWithSupervisor() {
+    const officialFarmName = joinFarmName.trim();
+    const username = joinSupervisorUsername.trim();
+    if (!officialFarmName || !username || !joinSupervisorPassword) {
+      setToast("Enter the official farm name and Supervisor credentials", "error");
+      return;
+    }
+    if (!online) {
+      setToast("Connect to the internet to join the correct farm", "error");
+      return;
+    }
+    setLinkingFieldDevice(true);
+    try {
+      await clearVerifiedEmptyFieldDeviceCache();
+      const response = await fetch("/api/field-devices/join-existing-farm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          farm_name: officialFarmName,
+          username,
+          password: joinSupervisorPassword,
+          device_id: getDeviceId(),
+          current_device_token: deviceToken || undefined,
+        }),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        farm_id?: string;
+        name?: string;
+        device_token?: string;
+        username?: string;
+        supervisor_token?: string;
+        supervisor_expires_at?: string;
+        error?: string;
+      };
+      if (
+        !response.ok ||
+        !result.ok ||
+        !result.farm_id ||
+        !result.name?.trim() ||
+        !result.device_token ||
+        !result.username ||
+        !result.supervisor_token ||
+        !result.supervisor_expires_at
+      ) {
+        throw new Error(result.error || "Could not join the existing farm");
+      }
+      applyApprovedFieldDeviceLink({
+        farmId: result.farm_id,
+        farmName: result.name.trim(),
+        deviceToken: result.device_token,
+        supervisorSession: {
+          token: result.supervisor_token,
+          username: result.username,
+          farmId: result.farm_id,
+          expiresAt: result.supervisor_expires_at,
+        },
+      });
+      setToast("This phone is connected to the correct farm and Supervisor tools are unlocked.", "success");
+    } catch (error) {
+      setToast(String((error as Error).message), "error");
+    } finally {
+      setLinkingFieldDevice(false);
+    }
   }
 
   async function enrollCurrentFieldDevice(supervisorToken: string) {
@@ -445,6 +722,42 @@ export default function App() {
   useEffect(() => {
     if (!online) clearPrivateIdentityDrafts();
   }, [online]);
+
+  // A native Android shell stores only the opaque field-device credential in
+  // Android Keystore-backed storage. This never mirrors a Supervisor identity
+  // session or private worker identity material.
+  useEffect(() => {
+    if (!farmId || !deviceToken) return;
+    mirrorNativeDeviceAccess({ farmId, deviceId: getDeviceId(), deviceToken });
+    // Pick up an outbox that was created in the browser before this device was
+    // installed as the native supervisor shell. Day entries only enter outbox
+    // after Done, so this remains a completed-batch hand-off.
+    void db.outbox.toArray().then((items) => {
+      mirrorNativeQueuedEvents(items.filter((item) => item.farm_id === farmId));
+    });
+  }, [farmId, deviceToken]);
+
+  // A native worker clears its encrypted mirror only after the server accepts
+  // the batch. On the next PWA foreground run, remove exactly those matching
+  // local outbox events. If this hand-off is interrupted, server event IDs make
+  // the later browser retry an idempotent duplicate rather than a new SMS.
+  useEffect(() => {
+    if (!farmId) return;
+    const acknowledged = new Set(takeNativeAcknowledgedEventIds());
+    if (acknowledged.size === 0) return;
+    let cancelled = false;
+    void db.outbox.toArray().then(async (items) => {
+      if (cancelled) return;
+      for (const item of items) {
+        if (item.farm_id === farmId && acknowledged.has(item.event_id)) {
+          await db.outbox.delete(item.event_id);
+        }
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [farmId]);
 
   // A field device may cache a display label from an older app version. Refresh
   // it from the narrow farm lookup when online, then keep it display-only.
@@ -720,7 +1033,7 @@ export default function App() {
       business_date: selectedDate,
       client_timestamp: new Date().toISOString(),
     };
-    await db.outbox.add({
+    await queueOutbox({
       event_id: registration.event_id,
       farm_id: farmId,
       payload: registration,
@@ -734,7 +1047,7 @@ export default function App() {
       start_date: selectedDate,
       end_date: null,
     });
-    await db.outbox.add({
+    await queueOutbox({
       event_id: employment.event_id,
       farm_id: farmId,
       payload: employment,
@@ -975,7 +1288,7 @@ export default function App() {
       business_date: fireDate,
       client_timestamp: new Date().toISOString(),
     };
-    await db.outbox.add({
+    await queueOutbox({
       event_id: ev.event_id,
       farm_id: farmId,
       payload: ev,
@@ -1032,7 +1345,7 @@ export default function App() {
       business_date: selectedDate,
       client_timestamp: new Date().toISOString(),
     };
-    await db.outbox.add({
+    await queueOutbox({
       event_id: ev.event_id,
       farm_id: farmId,
       payload: ev,
@@ -1252,13 +1565,17 @@ export default function App() {
         business_date: selectedDate,
         client_timestamp: new Date().toISOString(),
       };
-      await db.outbox.add({
+      const noPluckingOutbox: OutboxEvent = {
         event_id: ev.event_id,
         farm_id: farmId,
         payload: ev,
         createdAt: new Date().toISOString(),
         type: "day.plucking_set",
-      });
+      };
+      await queueOutbox(noPluckingOutbox, false);
+      // The native foreground worker sees a completed no-plucking day only
+      // after the PWA has made its durable local write.
+      mirrorNativeQueuedEvents([noPluckingOutbox]);
       localStorage.setItem(`done:${selectedDate}:${farmId}`, "1");
       setDayDone(true);
       setToast(`No-plucking day closed — syncing complete day…`, "success");
@@ -1274,7 +1591,10 @@ export default function App() {
       return;
     }
     const device_id = getDeviceId();
-    // Queue all plucks + absents + NP as batch (only now, not on each keystroke)
+    // Queue all plucks + absents + NP as batch (only now, not on each keystroke).
+    // Do not expose individual kg to the native foreground worker until the
+    // matching day.confirmed record has been safely written as well.
+    const nativeDayBatch: OutboxEvent[] = [];
     for (const d of daily) {
       if (d.present) {
         const ev = {
@@ -1291,13 +1611,15 @@ export default function App() {
           business_date: selectedDate,
           client_timestamp: new Date().toISOString(),
         };
-        await db.outbox.add({
+        const outboxEvent: OutboxEvent = {
           event_id: ev.event_id,
           farm_id: farmId,
           payload: ev,
           createdAt: new Date().toISOString(),
           type: "pluck.logged",
-        });
+        };
+        await queueOutbox(outboxEvent, false);
+        nativeDayBatch.push(outboxEvent);
       } else {
         const ev = {
           event_id: crypto.randomUUID(),
@@ -1309,13 +1631,15 @@ export default function App() {
           business_date: selectedDate,
           client_timestamp: new Date().toISOString(),
         };
-        await db.outbox.add({
+        const outboxEvent: OutboxEvent = {
           event_id: ev.event_id,
           farm_id: farmId,
           payload: ev,
           createdAt: new Date().toISOString(),
           type: "pluck.logged",
-        });
+        };
+        await queueOutbox(outboxEvent, false);
+        nativeDayBatch.push(outboxEvent);
       }
     }
     const totalKgUnits = present.reduce((s, d) => s + d.kgUnits, 0);
@@ -1330,13 +1654,18 @@ export default function App() {
       business_date: selectedDate,
       client_timestamp: new Date().toISOString(),
     };
-    await db.outbox.add({
+    const doneOutbox: OutboxEvent = {
       event_id: doneEv.event_id,
       farm_id: farmId,
       payload: doneEv,
       createdAt: new Date().toISOString(),
       type: "day.confirmed",
-    });
+    };
+    await queueOutbox(doneOutbox, false);
+    nativeDayBatch.push(doneOutbox);
+    // The bridge now receives the all-or-nothing completion batch, never any
+    // individual kg event while the supervisor is still entering the day.
+    mirrorNativeQueuedEvents(nativeDayBatch);
     localStorage.setItem(`done:${selectedDate}:${farmId}`, "1");
     setDayDone(true);
     setToast(
@@ -1413,7 +1742,7 @@ export default function App() {
       business_date: selectedDate,
       client_timestamp: new Date().toISOString(),
     };
-    await db.outbox.add({
+    await queueOutbox({
       event_id: ev.event_id,
       farm_id: farmId,
       payload: ev,
@@ -1466,6 +1795,10 @@ export default function App() {
         conflicts: number;
       };
       for (const o of all) await db.outbox.delete(o.event_id);
+      // The browser and native worker share event IDs. Once this authenticated
+      // browser push succeeds, remove the native mirror too so a later network
+      // callback cannot submit a second copy (the server would still dedupe it).
+      removeNativeQueuedEvents(all.map((item) => item.event_id));
       localStorage.setItem("last_synced", new Date().toISOString());
       setToast(
         manual
@@ -1541,33 +1874,116 @@ export default function App() {
             </div>
           </div>
           {farmId ? (
-            <div className="estate-farm-locked" aria-label="Registered farm locked on this device">
-              <strong>{farmName || "Registered farm"}</strong>
-              <span>
-                Farm {farmId.slice(0, 8)} · Locked · {deviceToken ? "Device secure" : "Secure device"}
-              </span>
-            </div>
-          ) : (
-            <div className="estate-farm-registration" aria-label="One-time farm registration">
-              <label>
-                <span>One-time owner setup</span>
-                <input
-                  value={farmName}
-                  onChange={(e) => setFarmName(e.target.value)}
-                  aria-label="Official farm name"
-                  placeholder="Official farm name"
-                  maxLength={80}
-                  disabled={registeringFarm}
-                />
-              </label>
+            <>
+              <div className="estate-farm-locked" aria-label="Registered farm locked on this device">
+                <strong>{farmName || "Registered farm"}</strong>
+                <span>
+                  Farm {farmId.slice(0, 8)} · Locked · {deviceToken ? "Device secure" : "Secure device"}
+                </span>
+              </div>
               <button
-                className="estate-new-farm"
-                onClick={() => void createFarm()}
-                disabled={registeringFarm}
-                data-testid="register-farm"
+                type="button"
+                data-testid="link-empty-field-device"
+                onClick={() => void openFieldDeviceLink()}
+                disabled={linkingFieldDevice || supervisorSigningIn || enrollingDevice}
+                style={{
+                  border: "1px solid #D9D1BC",
+                  borderRadius: 8,
+                  background: "#FFFDF7",
+                  color: "#5D4933",
+                  fontSize: 11,
+                  padding: "6px 8px",
+                  cursor: "pointer",
+                }}
+                title="Use only when this device has no pending or local daily records"
               >
-                {registeringFarm ? "Registering…" : "Register & lock"}
+                Join correct farm
               </button>
+            </>
+          ) : (
+            <div className="estate-farm-registration" aria-label="Existing or new farm setup">
+              <div style={{ display: "grid", gap: 5 }}>
+                <strong style={{ fontSize: 12 }}>Already have a farm?</strong>
+                <span style={{ fontSize: 11, color: "#4A4A42" }}>
+                  Supervisor sign-in connects this phone to the existing farm.
+                </span>
+              </div>
+              <button
+                type="button"
+                data-testid="link-existing-field-farm"
+                onClick={() => void openFieldDeviceLink()}
+                disabled={registeringFarm || linkingFieldDevice}
+                style={{
+                  border: "1px solid #D9D1BC",
+                  borderRadius: 8,
+                  background: "#FFFDF7",
+                  color: "#5D4933",
+                  fontSize: 11,
+                  padding: "6px 8px",
+                  cursor: "pointer",
+                }}
+              >
+                Join existing farm
+              </button>
+              {!showNewFarmSetup ? (
+                <button
+                  type="button"
+                  onClick={() => setShowNewFarmSetup(true)}
+                  disabled={linkingFieldDevice}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "#6B6B5E",
+                    fontSize: 11,
+                    padding: "4px 0",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                  }}
+                >
+                  Owner only: set up a brand-new farm
+                </button>
+              ) : (
+                <>
+                  <label>
+                    <span>New farm — one-time Owner setup</span>
+                    <input
+                      value={farmName}
+                      onChange={(e) => setFarmName(e.target.value)}
+                      aria-label="Official farm name"
+                      placeholder="Official farm name"
+                      maxLength={80}
+                      disabled={registeringFarm}
+                    />
+                  </label>
+                  <button
+                    className="estate-new-farm"
+                    onClick={() => void createFarm()}
+                    disabled={registeringFarm}
+                    data-testid="register-farm"
+                  >
+                    {registeringFarm ? "Registering…" : "Register & lock new farm"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={registeringFarm}
+                    onClick={() => {
+                      setShowNewFarmSetup(false);
+                      setFarmName("");
+                    }}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "#6B6B5E",
+                      fontSize: 11,
+                      padding: "2px 0",
+                      textDecoration: "underline",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cancel new-farm setup
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1645,6 +2061,145 @@ export default function App() {
           </div>
         )}
       </section>
+
+      {showFieldDeviceLink && (
+        <section
+          className="sync-zone"
+          aria-live="polite"
+          style={{ borderColor: "#D8E2D3", background: "#F7FBF4" }}
+        >
+          <div style={{ display: "grid", gap: 9 }}>
+            <div>
+              <b>
+                {fieldDeviceLinkMode === "credentials"
+                  ? "Join your existing farm"
+                  : "Use an Owner one-time code"}
+              </b>
+              <p style={{ margin: "5px 0 0", fontSize: 12, lineHeight: 1.45, color: "#4A4A42" }}>
+                {fieldDeviceLinkMode === "credentials"
+                  ? "Enter the official farm name and the Supervisor account created by the Owner/Admin. The farm name finds the farm; the Supervisor password proves access."
+                  : "Enter the short-lived code generated in the Owner/Admin console. Use this if the farm name is not unique or the Owner prefers to approve this phone directly."}
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="sync-action"
+                disabled={linkingFieldDevice}
+                onClick={() => setFieldDeviceLinkMode("credentials")}
+                style={{ opacity: fieldDeviceLinkMode === "credentials" ? 1 : 0.68 }}
+              >
+                Farm + Supervisor sign-in
+              </button>
+              <button
+                type="button"
+                className="sync-action"
+                disabled={linkingFieldDevice}
+                onClick={() => setFieldDeviceLinkMode("code")}
+                style={{ opacity: fieldDeviceLinkMode === "code" ? 1 : 0.68 }}
+              >
+                Owner code instead
+              </button>
+            </div>
+
+            {fieldDeviceLinkMode === "credentials" ? (
+              <>
+                <input
+                  aria-label="Official farm name"
+                  autoCapitalize="words"
+                  autoCorrect="off"
+                  placeholder="Official farm name"
+                  value={joinFarmName}
+                  disabled={linkingFieldDevice}
+                  onChange={(event) => setJoinFarmName(event.target.value)}
+                  style={{ minHeight: 40 }}
+                />
+                <input
+                  aria-label="Supervisor username for existing farm"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="username"
+                  placeholder="Supervisor username"
+                  value={joinSupervisorUsername}
+                  disabled={linkingFieldDevice}
+                  onChange={(event) => setJoinSupervisorUsername(event.target.value)}
+                  style={{ minHeight: 40 }}
+                />
+                <input
+                  type="password"
+                  aria-label="Supervisor password for existing farm"
+                  autoComplete="current-password"
+                  placeholder="Supervisor password"
+                  value={joinSupervisorPassword}
+                  disabled={linkingFieldDevice}
+                  onChange={(event) => setJoinSupervisorPassword(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void joinExistingFarmWithSupervisor();
+                  }}
+                  style={{ minHeight: 40 }}
+                />
+                <button
+                  className="sync-action"
+                  disabled={
+                    linkingFieldDevice ||
+                    !joinFarmName.trim() ||
+                    !joinSupervisorUsername.trim() ||
+                    !joinSupervisorPassword
+                  }
+                  onClick={() => void joinExistingFarmWithSupervisor()}
+                >
+                  {linkingFieldDevice ? "Connecting…" : "Sign in & connect this phone"}
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  aria-label="One-time field-device link code"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="one-time-code"
+                  placeholder="One-time link code"
+                  value={fieldDeviceLinkCode}
+                  disabled={linkingFieldDevice}
+                  onChange={(event) => setFieldDeviceLinkCode(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void linkEmptyFieldDevice();
+                  }}
+                  style={{ minHeight: 40, fontFamily: "monospace" }}
+                />
+                <button
+                  className="sync-action"
+                  disabled={linkingFieldDevice || !fieldDeviceLinkCode.trim()}
+                  onClick={() => void linkEmptyFieldDevice()}
+                >
+                  {linkingFieldDevice ? "Linking…" : "Link approved empty device"}
+                </button>
+              </>
+            )}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="sync-action"
+                disabled={linkingFieldDevice}
+                onClick={() => {
+                  setShowFieldDeviceLink(false);
+                  setJoinFarmName("");
+                  setJoinSupervisorUsername("");
+                  setJoinSupervisorPassword("");
+                  setFieldDeviceLinkCode("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+            <small style={{ color: "#6B6B5E", lineHeight: 1.4 }}>
+              Continue only when this phone has no pending sync or local daily records. Joining
+              clears this phone&apos;s cache and never moves people, kg, payroll, or messages between farms.
+            </small>
+          </div>
+        </section>
+      )}
 
       {farmId && !deviceToken && (
         <section

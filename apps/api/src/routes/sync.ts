@@ -94,10 +94,18 @@ export async function syncRoutes(app: FastifyInstance) {
           }
         }
         if (ev.event_type === "week.submitted" && acceptedEventIds.has(ev.event_id)) {
-          const { sendWeeklyReceipts } = await import("@tea-ledger/sms");
           const { getWeekStartMonday } = await import("@tea-ledger/core");
           const weekStart = getWeekStartMonday(ev.business_date);
-          await sendWeeklyReceipts({ farmId: ev.farm_id, weekStart });
+          const { isLiveDailySmsEnabledForFarm, sendLiveWeeklyOwnerSms, sendWeeklyReceipts } = await import("@tea-ledger/sms");
+          // The approved live rollout is owner-only at FINAL: a detailed weekly
+          // payroll report is sent after the server has locked the week. The
+          // older worker-receipt path remains available only outside that live
+          // rollout and can never double-message the live farm.
+          if (isLiveDailySmsEnabledForFarm(ev.farm_id)) {
+            await sendLiveWeeklyOwnerSms({ farmId: ev.farm_id, weekStart });
+          } else {
+            await sendWeeklyReceipts({ farmId: ev.farm_id, weekStart });
+          }
         }
       } catch (e) {
         // Do not block the authenticated ledger sync on a best-effort provider

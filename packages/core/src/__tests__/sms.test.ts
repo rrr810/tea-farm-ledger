@@ -7,6 +7,7 @@ import {
   buildDailyWorkerSms,
   buildDailyAbsentSms,
   buildCompactDailyOwnerSms,
+  buildDetailedWeeklyOwnerSmsParts,
   buildDailyNoPluckingSms,
   buildDailyWorkerNoPluckingSms,
 } from "../sms-helpers.js";
@@ -50,6 +51,30 @@ describe("sms", () => {
     for (const message of [worker, absent, owner, noPlucking, workerNoPlucking]) {
       expect(message.gsm7).toBe(true);
       expect(message.segments).toBe(1);
+    }
+  });
+
+  it("keeps every Saturday FINAL owner pay line while bounding each numbered SMS", () => {
+    const parts = buildDetailedWeeklyOwnerSmsParts({
+      weekLabel: "Week 23 Nov to 28 Nov",
+      lines: Array.from({ length: 32 }, (_, index) => ({
+        name: `Worker ${String(index + 1).padStart(2, "0")} Long Name`,
+        kgUnits: 100 + index,
+        amountKes: 90 + index,
+      })),
+      totalKgUnits: 3696,
+      totalAmountKes: 3408,
+    });
+
+    expect(parts.length).toBeGreaterThan(1);
+    const allBody = parts.map((part) => part.body).join(" ");
+    expect(allBody).toContain("Worker 01 Long Name 10.0kg KES90");
+    expect(allBody).toContain("Worker 32 Long Name 13.1kg KES121");
+    expect(allBody).toContain("TOTAL 32 workers: 369.6kg, KES3408 due.");
+    for (const [index, part] of parts.entries()) {
+      expect(part.body).toContain(`FINAL ${index + 1}/${parts.length}:`);
+      expect(part.gsm7).toBe(true);
+      expect(part.segments).toBeLessThanOrEqual(3);
     }
   });
 
