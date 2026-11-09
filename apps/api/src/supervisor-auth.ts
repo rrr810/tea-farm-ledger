@@ -127,7 +127,7 @@ export async function requireSupervisorForFarm(
     `SELECT s.expires_at, s.role AS session_role, u.user_id, u.username, u.role, u.farm_id
        FROM sessions s
        JOIN users u ON u.user_id=s.user_id
-      WHERE s.token=$1
+      WHERE s.token=$1 AND u.disabled_at IS NULL
       LIMIT 1`,
     [tokenDigest],
   );
@@ -173,7 +173,7 @@ export async function currentSupervisorSession(
     `SELECT s.expires_at, s.role AS session_role, u.user_id, u.username, u.role, u.farm_id
        FROM sessions s
        JOIN users u ON u.user_id=s.user_id
-      WHERE s.token=$1
+      WHERE s.token=$1 AND u.disabled_at IS NULL
       LIMIT 1`,
     [tokenDigest],
   );

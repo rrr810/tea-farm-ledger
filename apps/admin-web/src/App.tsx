@@ -13,9 +13,11 @@ import { currentWeekStartEAT } from "./week.js";
 import { SupervisorAccessPanel } from "./SupervisorAccessPanel.js";
 import { IdentitySafetyPanel } from "./IdentitySafetyPanel.js";
 import { FieldDeviceLinkPanel } from "./FieldDeviceLinkPanel.js";
+import { MasterFarmPanel } from "./MasterFarmPanel.js";
 
 type Tab =
   | "login"
+  | "farms"
   | "dashboard"
   | "workers"
   | "payroll"
@@ -278,20 +280,25 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(token() ? "dashboard" : "login");
   const [msg, setMsg] = useState("");
 
-  // Login and first-time Owner-led farm setup state. Password values live only
-  // in this component until submitted; they are never written to browser storage.
+  // Password values live only in this component until submitted; they are
+  // never written to browser storage. The Master account is a separate,
+  // cross-farm identity; retained farm Owners still use their old sign-in.
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
-  const [showFarmRegistration, setShowFarmRegistration] = useState(false);
-  const [newFarmName, setNewFarmName] = useState("");
-  const [newOwnerUsername, setNewOwnerUsername] = useState("");
-  const [newOwnerPassword, setNewOwnerPassword] = useState("");
-  const [confirmOwnerPassword, setConfirmOwnerPassword] = useState("");
-  const [newSupervisorUsername, setNewSupervisorUsername] = useState("");
-  const [newSupervisorPassword, setNewSupervisorPassword] = useState("");
-  const [confirmSupervisorPassword, setConfirmSupervisorPassword] = useState("");
-  const [farmRegistrationBusy, setFarmRegistrationBusy] = useState(false);
-  const [farmRegistrationMessage, setFarmRegistrationMessage] = useState("");
+  const [showFarmOwnerLogin, setShowFarmOwnerLogin] = useState(false);
+  const [masterEmail, setMasterEmail] = useState("");
+  const [masterPassword, setMasterPassword] = useState("");
+  const [masterLoginBusy, setMasterLoginBusy] = useState(false);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [activationStatus, setActivationStatus] = useState<{
+    master_active: boolean;
+    can_activate: boolean;
+  } | null>(null);
+  const [activationEmail, setActivationEmail] = useState("");
+  const [activationPassword, setActivationPassword] = useState("");
+  const [activationPasswordRepeat, setActivationPasswordRepeat] = useState("");
+  const [activationBusy, setActivationBusy] = useState(false);
+  const [activationMessage, setActivationMessage] = useState("");
   const [farms, setFarms] = useState<Array<{ farm_id: string; name: string }>>(
     [],
   );
@@ -348,82 +355,73 @@ export default function App() {
       setToken(res.token);
       setFarmId(res.farm_id);
       setCurrentFarm(res.farm_id);
+      setIsPlatformAdmin(false);
+      setActivationStatus(null);
       setTab("dashboard");
       toast("Logged in");
-      loadFarms();
+      void loadFarms();
     } catch (e) {
       toast(String(e));
     }
   }
 
-  function clearFarmRegistrationForm() {
-    setNewFarmName("");
-    setNewOwnerUsername("");
-    setNewOwnerPassword("");
-    setConfirmOwnerPassword("");
-    setNewSupervisorUsername("");
-    setNewSupervisorPassword("");
-    setConfirmSupervisorPassword("");
-    setFarmRegistrationMessage("");
-  }
-
-  async function registerNewFarm() {
-    if (farmRegistrationBusy) return;
-    setFarmRegistrationMessage("");
-    if (
-      !newFarmName.trim() ||
-      !newOwnerUsername.trim() ||
-      !newOwnerPassword ||
-      !newSupervisorUsername.trim() ||
-      !newSupervisorPassword
-    ) {
-      setFarmRegistrationMessage("Complete the farm, Owner, and first Supervisor details.");
-      return;
-    }
-    if (newOwnerPassword !== confirmOwnerPassword) {
-      setFarmRegistrationMessage("The Owner passwords do not match.");
-      return;
-    }
-    if (newSupervisorPassword !== confirmSupervisorPassword) {
-      setFarmRegistrationMessage("The Supervisor passwords do not match.");
-      return;
-    }
-
-    setFarmRegistrationBusy(true);
+  async function doMasterLogin() {
+    if (masterLoginBusy) return;
+    setMasterLoginBusy(true);
     try {
-      const result = (await api.registerFarm({
-        farm_name: newFarmName,
-        owner_username: newOwnerUsername,
-        owner_password: newOwnerPassword,
-        supervisor_username: newSupervisorUsername,
-        supervisor_password: newSupervisorPassword,
-      })) as {
+      const result = (await api.platformLogin(masterEmail, masterPassword)) as {
         token?: string;
-        farm_id?: string;
-        name?: string;
-        owner_username?: string;
+        email?: string;
       };
-      if (!result.token || !result.farm_id || !result.name || !result.owner_username) {
-        throw new Error("Farm setup returned an incomplete result. Nothing has been opened.");
-      }
-
-      // The newly created Owner is signed in immediately. The API response
-      // intentionally contains no password, and this clears both form secrets.
+      if (!result.token) throw new Error("Master sign-in returned an incomplete session.");
       setToken(result.token);
-      setFarmId(result.farm_id);
-      setCurrentFarm(result.farm_id);
-      setFarms([{ farm_id: result.farm_id, name: result.name }]);
-      setUsername(result.owner_username);
-      setPassword("");
-      clearFarmRegistrationForm();
-      setShowFarmRegistration(false);
-      setTab("dashboard");
-      toast("New farm registered. Share the Supervisor sign-in details privately.");
+      localStorage.removeItem("farm_id");
+      setCurrentFarm("");
+      setIsPlatformAdmin(true);
+      setActivationStatus(null);
+      setMasterPassword("");
+      setTab("farms");
+      toast("Master Console opened");
       await loadFarms();
     } catch (error) {
-      setFarmRegistrationMessage(String((error as Error).message));
+      toast(String((error as Error).message));
     } finally {
-      setFarmRegistrationBusy(false);
+      setMasterLoginBusy(false);
+    }
+  }
+
+  async function activateMasterAdmin() {
+    if (activationBusy) return;
+    setActivationMessage("");
+    if (!activationEmail.trim() || !activationPassword) {
+      setActivationMessage("Enter your email address and a Master password.");
+      return;
+    }
+    if (activationPassword !== activationPasswordRepeat) {
+      setActivationMessage("The Master passwords do not match.");
+      return;
+    }
+    setActivationBusy(true);
+    try {
+      const result = (await api.activatePlatformAdmin(activationEmail, activationPassword)) as {
+        token?: string;
+      };
+      if (!result.token) throw new Error("Master activation returned an incomplete session.");
+      setToken(result.token);
+      localStorage.removeItem("farm_id");
+      setCurrentFarm("");
+      setIsPlatformAdmin(true);
+      setActivationStatus({ master_active: true, can_activate: false });
+      setActivationEmail("");
+      setActivationPassword("");
+      setActivationPasswordRepeat("");
+      setTab("farms");
+      toast("Master Console activated");
+      await loadFarms();
+    } catch (error) {
+      setActivationMessage(String((error as Error).message));
+    } finally {
+      setActivationBusy(false);
     }
   }
 
@@ -431,19 +429,37 @@ export default function App() {
     try {
       const [farmResult, session] = await Promise.all([
         api.farms() as Promise<{ farms: Array<{ farm_id: string; name: string }> }>,
-        api.me() as Promise<{ farm_id: string; role: string }>,
+        api.me() as Promise<{ farm_id: string | null; role: string }>,
       ]);
-      // Identity records are intentionally farm-bound. Do not offer a farm
-      // selector that lets this Admin account attempt to cross that boundary.
-      const allowedFarms = farmResult.farms.filter(
-        (farm) => farm.farm_id === session.farm_id,
-      );
+      const master = session.role === "platform_admin";
+      setIsPlatformAdmin(master);
+      // Retained farm Owners stay limited to their own farm. The Master sees
+      // the deliberate all-farm list from the central console.
+      const allowedFarms = master
+        ? farmResult.farms
+        : farmResult.farms.filter((farm) => farm.farm_id === session.farm_id);
       setFarms(allowedFarms);
       const nextFarm = resolveFarmSelection(currentFarm, allowedFarms);
       if (nextFarm !== currentFarm) {
         setCurrentFarm(nextFarm);
         if (nextFarm) setFarmId(nextFarm);
         else localStorage.removeItem("farm_id");
+      }
+      if (master) {
+        setActivationStatus(null);
+        if (!nextFarm) setTab("farms");
+      } else {
+        try {
+          const status = (await api.platformActivationStatus()) as {
+            master_active: boolean;
+            can_activate: boolean;
+          };
+          setActivationStatus(status);
+        } catch {
+          // A retained Owner who is not the trusted bootstrap identity must not
+          // learn extra setup detail. The activation panel simply stays hidden.
+          setActivationStatus(null);
+        }
       }
     } catch (e) {
       // Before login there is no session yet; the login flow calls this again.
@@ -517,7 +533,7 @@ export default function App() {
   }, [currentFarm]);
   useEffect(() => {
     const returnToLogin = () => {
-      logout("Your owner session expired. Sign in again.");
+      logout("Your admin session expired. Sign in again.");
     };
     window.addEventListener(ADMIN_SESSION_EXPIRED_EVENT, returnToLogin);
     return () => window.removeEventListener(ADMIN_SESSION_EXPIRED_EVENT, returnToLogin);
@@ -720,6 +736,15 @@ export default function App() {
     setAudit([]);
     setRates([]);
     setCsvPreview(null);
+    setIsPlatformAdmin(false);
+    setActivationStatus(null);
+    setMasterEmail("");
+    setMasterPassword("");
+    setPassword("");
+    setActivationEmail("");
+    setActivationPassword("");
+    setActivationPasswordRepeat("");
+    setShowFarmOwnerLogin(false);
     setTab("login");
     toast(message);
   }
@@ -729,162 +754,13 @@ export default function App() {
       <div className="admin-login">
         <div className="admin-login-kicker">Tea estate operations</div>
         <h2 style={{ margin: "10px 0 0" }}>
-          {showFarmRegistration ? "Register a new farm" : "Owner console"}
+          {showFarmOwnerLogin ? "Farm Owner sign in" : "Master Admin"}
         </h2>
-        {showFarmRegistration ? (
+        {showFarmOwnerLogin ? (
           <>
             <p className="admin-login-copy">
-              Create a separate Owner account and the first Supervisor account together.
-              Afterwards, the empty field phone only needs the official farm name plus
-              the Supervisor username and password.
-            </p>
-            <form
-              className="admin-farm-registration-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void registerNewFarm();
-              }}
-            >
-              <fieldset>
-                <legend>1. Farm</legend>
-                <label>
-                  Official farm name
-                  <input
-                    aria-label="Official farm name"
-                    autoCapitalize="words"
-                    autoComplete="organization"
-                    placeholder="e.g. Green Hills Tea Farm"
-                    maxLength={80}
-                    value={newFarmName}
-                    disabled={farmRegistrationBusy}
-                    onChange={(event) => setNewFarmName(event.target.value)}
-                  />
-                </label>
-              </fieldset>
-
-              <fieldset>
-                <legend>2. Owner/Admin account</legend>
-                <label>
-                  Owner username
-                  <input
-                    aria-label="New Owner username"
-                    autoCapitalize="none"
-                    autoComplete="username"
-                    placeholder="e.g. greenhills-owner"
-                    minLength={3}
-                    maxLength={32}
-                    value={newOwnerUsername}
-                    disabled={farmRegistrationBusy}
-                    onChange={(event) => setNewOwnerUsername(event.target.value)}
-                  />
-                </label>
-                <label>
-                  Owner password
-                  <input
-                    aria-label="New Owner password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="At least 12 characters"
-                    minLength={12}
-                    maxLength={128}
-                    value={newOwnerPassword}
-                    disabled={farmRegistrationBusy}
-                    onChange={(event) => setNewOwnerPassword(event.target.value)}
-                  />
-                </label>
-                <label>
-                  Repeat Owner password
-                  <input
-                    aria-label="Repeat new Owner password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="Repeat the Owner password"
-                    minLength={12}
-                    maxLength={128}
-                    value={confirmOwnerPassword}
-                    disabled={farmRegistrationBusy}
-                    onChange={(event) => setConfirmOwnerPassword(event.target.value)}
-                  />
-                </label>
-              </fieldset>
-
-              <fieldset>
-                <legend>3. First Supervisor account</legend>
-                <label>
-                  Supervisor username
-                  <input
-                    aria-label="First Supervisor username"
-                    autoCapitalize="none"
-                    autoComplete="username"
-                    placeholder="e.g. greenhills-supervisor"
-                    minLength={3}
-                    maxLength={32}
-                    value={newSupervisorUsername}
-                    disabled={farmRegistrationBusy}
-                    onChange={(event) => setNewSupervisorUsername(event.target.value)}
-                  />
-                </label>
-                <label>
-                  Supervisor password
-                  <input
-                    aria-label="First Supervisor password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="At least 12 characters"
-                    minLength={12}
-                    maxLength={128}
-                    value={newSupervisorPassword}
-                    disabled={farmRegistrationBusy}
-                    onChange={(event) => setNewSupervisorPassword(event.target.value)}
-                  />
-                </label>
-                <label>
-                  Repeat Supervisor password
-                  <input
-                    aria-label="Repeat first Supervisor password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="Repeat the Supervisor password"
-                    minLength={12}
-                    maxLength={128}
-                    value={confirmSupervisorPassword}
-                    disabled={farmRegistrationBusy}
-                    onChange={(event) => setConfirmSupervisorPassword(event.target.value)}
-                  />
-                </label>
-              </fieldset>
-
-              <p className="admin-farm-registration-note">
-                New farms start at the current default of KES 9 per kg. You can change
-                the rate in Farm Settings before anyone records leaf. Passwords are not
-                shown again after setup, so keep them private and safe.
-              </p>
-              {farmRegistrationMessage && (
-                <p className="admin-farm-registration-message" role="status">
-                  {farmRegistrationMessage}
-                </p>
-              )}
-              <button className="primary" type="submit" disabled={farmRegistrationBusy}>
-                {farmRegistrationBusy ? "Registering farm…" : "Register farm & open console"}
-              </button>
-              <button
-                className="admin-login-link-button"
-                type="button"
-                disabled={farmRegistrationBusy}
-                onClick={() => {
-                  clearFarmRegistrationForm();
-                  setShowFarmRegistration(false);
-                }}
-              >
-                Back to Owner sign in
-              </button>
-            </form>
-          </>
-        ) : (
-          <>
-            <p className="admin-login-copy">
-              Secure access to payroll, field records and audit history. Session 7d.
-              No MFA (deferred per Decision 22).
+              Existing farm-specific Owner accounts remain available for their own
+              farm. New farms are created only from the central Master Console.
             </p>
             <form
               className="admin-login-form"
@@ -894,23 +770,76 @@ export default function App() {
               }}
             >
               <input
-                aria-label="Owner username"
+                aria-label="Farm Owner username"
                 autoCapitalize="none"
                 autoComplete="username"
-                placeholder="username"
+                placeholder="Farm Owner username"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
               />
               <input
-                aria-label="Owner password"
+                aria-label="Farm Owner password"
                 autoComplete="current-password"
-                placeholder="password"
+                placeholder="Password"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
               <button className="primary" type="submit">
-                Enter estate console
+                Enter farm console
+              </button>
+            </form>
+            {msg && (
+              <div className="admin-login-message" role="status">
+                {msg}
+              </div>
+            )}
+            <button
+              className="admin-login-link-button"
+              type="button"
+              onClick={() => {
+                setMsg("");
+                setPassword("");
+                setShowFarmOwnerLogin(false);
+              }}
+            >
+              Back to Master Admin sign in
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="admin-login-copy">
+              One secure sign-in for all farms, Supervisors, and field-device access.
+              Use the email address and Master password created during one-time activation.
+            </p>
+            <form
+              className="admin-login-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void doMasterLogin();
+              }}
+            >
+              <input
+                aria-label="Master Admin email address"
+                type="email"
+                autoCapitalize="none"
+                autoComplete="email"
+                placeholder="Email address"
+                value={masterEmail}
+                disabled={masterLoginBusy}
+                onChange={(event) => setMasterEmail(event.target.value)}
+              />
+              <input
+                aria-label="Master Admin password"
+                autoComplete="current-password"
+                placeholder="Master password"
+                type="password"
+                value={masterPassword}
+                disabled={masterLoginBusy}
+                onChange={(event) => setMasterPassword(event.target.value)}
+              />
+              <button className="primary" type="submit" disabled={masterLoginBusy}>
+                {masterLoginBusy ? "Signing in…" : "Enter Master Console"}
               </button>
             </form>
             {msg && (
@@ -924,15 +853,15 @@ export default function App() {
               type="button"
               onClick={() => {
                 setMsg("");
-                clearFarmRegistrationForm();
-                setShowFarmRegistration(true);
+                setMasterPassword("");
+                setShowFarmOwnerLogin(true);
               }}
             >
-              Register a new farm
+              Existing farm Owner sign in
             </button>
             <p className="admin-login-footer">
-              Already registered? Use the Owner credentials set for that farm. All
-              actions are audit-logged.
+              First-time Master setup is protected inside the current trusted Owner/Admin
+              console. It does not send email or SMS and never asks you to share credentials in chat.
             </p>
           </>
         )}
@@ -949,7 +878,7 @@ export default function App() {
           </div>
           <div>
             <h1>Tea Ledger</h1>
-            <small>Owner’s estate console</small>
+            <small>{isPlatformAdmin ? "Master Admin · all farms" : "Farm Owner console"}</small>
           </div>
           <select
             value={currentFarm}
@@ -968,38 +897,147 @@ export default function App() {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, opacity: 0.72, color: "white" }}>
-            {currentFarm ? `Farm ${currentFarm.slice(0, 8)}` : ""}
+            {currentFarm ? `Farm ${currentFarm.slice(0, 8)}` : isPlatformAdmin ? "All farms" : ""}
           </span>
+          {isPlatformAdmin && (
+            <button className="new-farm-button" onClick={() => setTab("farms")}>
+              + New farm
+            </button>
+          )}
           <button className="logout-button" onClick={logout}>
             Logout
           </button>
         </div>
       </header>
       <nav className="admin-nav">
-        {(
-          [
-            "dashboard",
-            "workers",
-            "payroll",
-            "conflicts",
-            "sms",
-            "reports",
-            "import",
-            "settings",
-            "audit",
-          ] as Tab[]
+        {(isPlatformAdmin
+          ? [
+              "farms",
+              "dashboard",
+              "workers",
+              "payroll",
+              "conflicts",
+              "sms",
+              "reports",
+              "import",
+              "settings",
+              "audit",
+            ]
+          : [
+              "dashboard",
+              "workers",
+              "payroll",
+              "conflicts",
+              "sms",
+              "reports",
+              "import",
+              "settings",
+              "audit",
+            ]
         ).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => setTab(t as Tab)}
             className={tab === t ? "active" : ""}
           >
-            {t}
+            {t === "farms" ? "Farms" : t}
           </button>
         ))}
       </nav>
       {msg && <div className="admin-toast">{msg}</div>}
       <main className="admin-content">
+        {isPlatformAdmin && tab === "farms" && (
+          <MasterFarmPanel
+            farms={farms}
+            onCreated={(farm) => {
+              setFarms((existing) =>
+                [...existing.filter((item) => item.farm_id !== farm.farm_id), farm].sort((a, b) =>
+                  a.name.localeCompare(b.name),
+                ),
+              );
+              setCurrentFarm(farm.farm_id);
+              setFarmId(farm.farm_id);
+              void loadFarms();
+            }}
+            onOpenFarm={(nextFarm) => {
+              setCurrentFarm(nextFarm);
+              setFarmId(nextFarm);
+              setTab("dashboard");
+            }}
+          />
+        )}
+
+        {!isPlatformAdmin && activationStatus?.can_activate && tab === "dashboard" && (
+          <section className="card master-activation-card">
+            <div className="admin-dashboard-kicker" style={{ color: "#b86f36" }}>
+              One-time secure setup
+            </div>
+            <h3>Activate your Master Console</h3>
+            <p className="muted" style={{ maxWidth: 760 }}>
+              This trusted existing Admin account can activate one central Master Admin.
+              Choose the email address and Master password you will use to manage all farms.
+              Do not enter either anywhere outside this protected screen.
+            </p>
+            <form
+              className="master-activation-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void activateMasterAdmin();
+              }}
+            >
+              <label>
+                Master Admin email address
+                <input
+                  aria-label="Master Admin setup email address"
+                  type="email"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  placeholder="Email address"
+                  value={activationEmail}
+                  disabled={activationBusy}
+                  onChange={(event) => setActivationEmail(event.target.value)}
+                />
+              </label>
+              <label>
+                Choose Master password
+                <input
+                  aria-label="Choose Master password"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="At least 12 characters"
+                  minLength={12}
+                  maxLength={128}
+                  value={activationPassword}
+                  disabled={activationBusy}
+                  onChange={(event) => setActivationPassword(event.target.value)}
+                />
+              </label>
+              <label>
+                Repeat Master password
+                <input
+                  aria-label="Repeat Master password"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="Repeat Master password"
+                  minLength={12}
+                  maxLength={128}
+                  value={activationPasswordRepeat}
+                  disabled={activationBusy}
+                  onChange={(event) => setActivationPasswordRepeat(event.target.value)}
+                />
+              </label>
+              <button className="primary" type="submit" disabled={activationBusy}>
+                {activationBusy ? "Activating Master Console…" : "Activate Master Console"}
+              </button>
+            </form>
+            {activationMessage && (
+              <p className="master-activation-message" role="status">
+                {activationMessage}
+              </p>
+            )}
+          </section>
+        )}
+
         {tab === "dashboard" && (
           <>
             <section className="admin-dashboard-hero">
@@ -1979,7 +2017,11 @@ export default function App() {
               </tbody>
             </table>
             <RateForm farmId={currentFarm} onDone={loadDashboard} />
-            <SupervisorAccessPanel farmId={currentFarm} onDone={loadDashboard} />
+            <SupervisorAccessPanel
+              farmId={currentFarm}
+              onDone={loadDashboard}
+              isPlatformAdmin={isPlatformAdmin}
+            />
             <FieldDeviceLinkPanel farmId={currentFarm} />
             <IdentitySafetyPanel farmId={currentFarm} />
           </div>

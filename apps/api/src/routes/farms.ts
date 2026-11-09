@@ -1,7 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { getDb, withTransaction } from "@tea-ledger/database";
-import { validateFarmName } from "@tea-ledger/core";
-import { randomUUID } from "node:crypto";
+import { getDb } from "@tea-ledger/database";
 import { requireAdminForFarm, requireAdminSession } from "../admin-auth.js";
 import { currentSupervisorSession } from "../supervisor-auth.js";
 import { isUuid, issueFarmDeviceAccess, requireFarmDevice } from "../device-auth.js";
@@ -19,65 +17,25 @@ function bearerToken(req: { headers: Record<string, unknown> }): string {
  * as proof that a browser may read or sync that farm's records.
  */
 export async function farmsRoutes(app: FastifyInstance) {
-  app.post("/api/farms", async (req, reply) => {
-    const body = req.body as { name?: unknown; device_id?: unknown };
-    const rawName = typeof body?.name === "string" ? body.name : "";
-    const validation = validateFarmName(rawName);
-    if (!validation.valid) return reply.status(400).send({ error: validation.reason });
-    const deviceId = body?.device_id;
-    if (!isUuid(deviceId)) {
-      return reply.status(400).send({ error: "a valid field device identifier is required" });
-    }
-
-    const name = rawName.trim();
-    // New Owner-led registration reserves official names so the normal
-    // farm-name + Supervisor login can select one farm unambiguously. Retain
-    // this legacy field-first endpoint for compatibility, but give it the same
-    // clear conflict behaviour.
-    const db = await getDb();
-    const sameName = await db.query(
-      "SELECT farm_id FROM farms WHERE LOWER(BTRIM(name))=LOWER(BTRIM($1)) LIMIT 1",
-      [name],
-    );
-    if ((sameName.rows as unknown[]).length > 0) {
-      return reply.status(409).send({ error: "that official farm name is already registered" });
-    }
-
-    const farmId = randomUUID();
-    try {
-      const enrolled = await withTransaction(async (db) => {
-        await db.query("INSERT INTO farms (farm_id, name) VALUES ($1,$2)", [farmId, name]);
-        await db.query(
-          "INSERT INTO farm_name_reservations (canonical_name, farm_id) VALUES (LOWER(BTRIM($1)),$2)",
-          [name, farmId],
-        );
-        await db.query(
-          "INSERT INTO rates (farm_id, effective_from, rate_cents_per_kg) VALUES ($1,'2020-01-01',900) ON CONFLICT DO NOTHING",
-          [farmId],
-        );
-        return issueFarmDeviceAccess({
-          farmId,
-          deviceId,
-          dbClient: db,
-        });
-      });
-      return { farm_id: farmId, name, device_token: enrolled.deviceToken };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "farm registration could not be completed";
-      return reply.status(409).send({
-        error: /duplicate key|unique constraint|unique violation/i.test(message)
-          ? "that official farm name is already registered"
-          : message,
-      });
-    }
+  /**
+   * A field device can no longer create a farm. It must join a farm provisioned
+   * by the Master Admin with the Supervisor credentials supplied to it.
+   */
+  app.post("/api/farms", async (_req, reply) => {
+    return reply.status(403).send({
+      error: "new farms can be created only from the Master Admin console",
+    });
   });
 
-  // An Owner/Admin sees only the farm bound to the current admin session.
+  // A retained farm Owner sees only its bound farm; the Master deliberately
+  // receives the cross-farm list used by the central Farms console.
   app.get("/api/farms", async (req, reply) => {
     const admin = await requireAdminSession(req, reply);
     if (!admin) return;
     const db = await getDb();
-    const res = await db.query("SELECT farm_id, name FROM farms WHERE farm_id=$1", [admin.farmId]);
+    const res = admin.kind === "platform"
+      ? await db.query("SELECT farm_id, name FROM farms ORDER BY LOWER(name), farm_id")
+      : await db.query("SELECT farm_id, name FROM farms WHERE farm_id=$1", [admin.farmId]);
     return { farms: res.rows as FarmRow[] };
   });
 
@@ -120,7 +78,9 @@ export async function farmsRoutes(app: FastifyInstance) {
     } else {
       const admin = await requireAdminForFarm(req, reply, farmId);
       if (!admin) return;
-      supervisorUserId = admin.userId;
+      // A Master Admin is not a farm user, so it may authorize this action
+      // without being recorded as a Supervisor/Owner foreign key on the device.
+      supervisorUserId = admin.userId ?? undefined;
     }
 
     try {

@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { getDb, withTransaction } from "@tea-ledger/database";
-import { validateFarmName } from "@tea-ledger/core";
+import { getDb } from "@tea-ledger/database";
 import {
   createHash,
   randomBytes,
@@ -14,63 +13,10 @@ import {
   requireAdminForFarm,
   requireAdminSession,
 } from "../admin-auth.js";
-import {
-  hashSupervisorPassword,
-  normalizeSupervisorUsername,
-  validateSupervisorPassword,
-} from "../supervisor-auth.js";
+import { digestPlatformSessionToken } from "../platform-auth.js";
 
 const scrypt = promisify(scryptCallback);
 const ADMIN_SCRYPT_BYTES = 64;
-const DEFAULT_RATE_CENTS_PER_KG = 900;
-
-type RegisterFarmBody = {
-  farm_name?: unknown;
-  owner_username?: unknown;
-  owner_password?: unknown;
-  supervisor_username?: unknown;
-  supervisor_password?: unknown;
-};
-
-function normalizeOwnerUsername(value: unknown):
-  | { ok: true; value: string }
-  | { ok: false; reason: string } {
-  if (typeof value !== "string") {
-    return { ok: false, reason: "owner username is required" };
-  }
-  const username = value.trim().toLowerCase();
-  if (!/^[a-z][a-z0-9._-]{2,31}$/.test(username)) {
-    return {
-      ok: false,
-      reason:
-        "owner username must be 3–32 lowercase letters, numbers, dots, dashes, or underscores",
-    };
-  }
-  return { ok: true, value: username };
-}
-
-function validateOwnerPassword(value: unknown):
-  | { ok: true; value: string }
-  | { ok: false; reason: string } {
-  if (typeof value !== "string") {
-    return { ok: false, reason: "owner password is required" };
-  }
-  if (value.length < 12 || value.length > 128) {
-    return { ok: false, reason: "owner password must be 12–128 characters" };
-  }
-  if (/[\u0000-\u001F\u007F]/.test(value)) {
-    return { ok: false, reason: "owner password contains unsupported characters" };
-  }
-  return { ok: true, value };
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown };
-  return (
-    candidate?.code === "23505" ||
-    /duplicate key|unique constraint|unique violation/i.test(String(candidate?.message ?? error))
-  );
-}
 
 /** New Admin credentials use scrypt. Legacy SHA-256 hashes are upgraded at login. */
 async function hashPassword(password: string): Promise<string> {
@@ -169,130 +115,13 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   /**
-   * One-time Owner-led setup for a new farm. It deliberately makes a separate
-   * Owner account and first Supervisor account together, so an empty field
-   * phone can subsequently use only farm name + Supervisor credentials.
-   * Passwords are hashed before the database transaction and never returned,
-   * written to audit detail, or retained by the server after this request.
+   * New farms are now created only by the authenticated Master Admin console.
+   * Keep this legacy URL fail-closed so an old signed-out browser cannot bypass
+   * the central farm assignment and generated-Supervisor workflow.
    */
-  app.post("/api/admin/register-farm", async (req, reply) => {
-    const body = (req.body ?? {}) as RegisterFarmBody;
-    const rawFarmName = typeof body.farm_name === "string" ? body.farm_name : "";
-    const farmValidation = validateFarmName(rawFarmName);
-    const owner = normalizeOwnerUsername(body.owner_username);
-    const ownerPassword = validateOwnerPassword(body.owner_password);
-    const supervisor = normalizeSupervisorUsername(body.supervisor_username);
-    const supervisorPassword = validateSupervisorPassword(body.supervisor_password);
-
-    if (!farmValidation.valid) return reply.status(400).send({ error: farmValidation.reason });
-    if (!owner.ok) return reply.status(400).send({ error: owner.reason });
-    if (!ownerPassword.ok) return reply.status(400).send({ error: ownerPassword.reason });
-    if (!supervisor.ok) return reply.status(400).send({ error: supervisor.reason });
-    if (!supervisorPassword.ok) return reply.status(400).send({ error: supervisorPassword.reason });
-    if (owner.value === supervisor.value) {
-      return reply.status(400).send({ error: "owner and supervisor usernames must be different" });
-    }
-
-    const name = rawFarmName.trim();
-    const db = await getDb();
-    // The canonical-name reservation written below makes this race-safe. These
-    // early checks provide a useful, plain-language response before costly hashing.
-    const sameName = await db.query(
-      "SELECT farm_id FROM farms WHERE LOWER(BTRIM(name))=LOWER(BTRIM($1)) LIMIT 1",
-      [name],
-    );
-    if ((sameName.rows as unknown[]).length > 0) {
-      return reply.status(409).send({
-        error: "that official farm name is already registered; choose a different name",
-      });
-    }
-    const usedNames = await db.query(
-      "SELECT LOWER(username) AS username FROM users WHERE LOWER(username)=LOWER($1) OR LOWER(username)=LOWER($2)",
-      [owner.value, supervisor.value],
-    );
-    const unavailable = new Set(
-      (usedNames.rows as Array<{ username: string }>).map((row) => row.username),
-    );
-    if (unavailable.has(owner.value)) {
-      return reply.status(409).send({ error: "that owner username is unavailable; choose a different one" });
-    }
-    if (unavailable.has(supervisor.value)) {
-      return reply.status(409).send({ error: "that supervisor username is unavailable; choose a different one" });
-    }
-
-    const [ownerPasswordHash, supervisorPasswordHash] = await Promise.all([
-      hashPassword(ownerPassword.value),
-      hashSupervisorPassword(supervisorPassword.value),
-    ]);
-    const farmId = randomUUID();
-    const ownerUserId = randomUUID();
-    const supervisorUserId = randomUUID();
-    const session = sessionToken();
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
-
-    try {
-      await withTransaction(async (tx) => {
-        await tx.query("INSERT INTO farms (farm_id, name) VALUES ($1,$2)", [farmId, name]);
-        // The reservation is the concurrency-safe canonical-name gate. It is
-        // after the farm insert because it has a foreign key, but both writes
-        // share this transaction so a collision rolls everything back.
-        await tx.query(
-          "INSERT INTO farm_name_reservations (canonical_name, farm_id) VALUES (LOWER(BTRIM($1)),$2)",
-          [name, farmId],
-        );
-        await tx.query(
-          "INSERT INTO rates (farm_id, effective_from, rate_cents_per_kg) VALUES ($1,'2020-01-01',$2)",
-          [farmId, DEFAULT_RATE_CENTS_PER_KG],
-        );
-        await tx.query(
-          `INSERT INTO users (user_id, farm_id, role, username, password_hash)
-           VALUES ($1,$2,'admin',$3,$4)`,
-          [ownerUserId, farmId, owner.value, ownerPasswordHash],
-        );
-        await tx.query(
-          `INSERT INTO users (user_id, farm_id, role, username, password_hash)
-           VALUES ($1,$2,'supervisor',$3,$4)`,
-          [supervisorUserId, farmId, supervisor.value, supervisorPasswordHash],
-        );
-        await tx.query(
-          "INSERT INTO sessions (token, user_id, farm_id, role, expires_at) VALUES ($1,$2,$3,'admin',$4)",
-          [digestAdminSessionToken(session), ownerUserId, farmId, expiresAt],
-        );
-        await tx.query(
-          `INSERT INTO audit_log (farm_id, actor, action, target, detail)
-           VALUES ($1,$2,'farm.registered',$3,$4::jsonb),
-                  ($1,$2,'supervisor.created',$5,$6::jsonb)`,
-          [
-            farmId,
-            owner.value,
-            farmId,
-            JSON.stringify({ setup: "owner_console", initial_rate_cents_per_kg: DEFAULT_RATE_CENTS_PER_KG }),
-            supervisorUserId,
-            JSON.stringify({ setup: "initial_owner_registration" }),
-          ],
-        );
-      });
-    } catch (error) {
-      if (isUniqueConstraintError(error)) {
-        // Do not expose a database constraint name or a possibly pre-existing
-        // username. The Owner can simply choose another one and try again.
-        return reply.status(409).send({
-          error: "a farm name or username is already in use; choose different details and try again",
-        });
-      }
-      throw error;
-    }
-
-    return reply.status(201).send({
-      ok: true,
-      farm_id: farmId,
-      name,
-      role: "admin",
-      owner_username: owner.value,
-      supervisor_username: supervisor.value,
-      token: session,
-      expires_at: expiresAt,
-      initial_rate_cents_per_kg: DEFAULT_RATE_CENTS_PER_KG,
+  app.post("/api/admin/register-farm", async (_req, reply) => {
+    return reply.status(403).send({
+      error: "new farms can be created only from the Master Admin console",
     });
   });
 
@@ -330,7 +159,23 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get("/api/admin/me", async (req, reply) => {
     const session = await requireAdminSession(req, reply);
     if (!session) return;
-    return { ok: true, username: session.username, role: session.role, farm_id: session.farmId };
+    if (session.kind === "platform") {
+      return {
+        ok: true,
+        username: session.email,
+        email: session.email,
+        role: "platform_admin",
+        farm_id: null,
+        is_platform_admin: true,
+      };
+    }
+    return {
+      ok: true,
+      username: session.username,
+      role: session.role,
+      farm_id: session.farmId,
+      is_platform_admin: false,
+    };
   });
 
   // POST /api/admin/logout
@@ -339,7 +184,10 @@ export async function adminRoutes(app: FastifyInstance) {
     const token = auth.replace(/^Bearer\s+/i, "");
     if (token) {
       const db = await getDb();
+      // The raw bearer is never persisted. Deleting both domain-separated
+      // digests makes logout safe for either retained farm Owners or Master.
       await db.query("DELETE FROM sessions WHERE token=$1", [digestAdminSessionToken(token)]);
+      await db.query("DELETE FROM platform_sessions WHERE token=$1", [digestPlatformSessionToken(token)]);
     }
     return { ok: true };
   });

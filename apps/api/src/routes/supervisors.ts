@@ -36,7 +36,7 @@ export async function supervisorsRoutes(app: FastifyInstance) {
     if (!admin) return;
     const db = await getDb();
     const result = await db.query(
-      `SELECT user_id, username, created_at
+      `SELECT user_id, username, created_at, disabled_at
          FROM users
         WHERE farm_id=$1 AND role='supervisor'
         ORDER BY created_at ASC`,
@@ -113,7 +113,7 @@ export async function supervisorsRoutes(app: FastifyInstance) {
       const db = await getDb();
       const existing = await db.query(
         `SELECT user_id FROM users
-          WHERE user_id=$1 AND farm_id=$2 AND role='supervisor'
+          WHERE user_id=$1 AND farm_id=$2 AND role='supervisor' AND disabled_at IS NULL
           LIMIT 1`,
         [userId, farmId],
       );

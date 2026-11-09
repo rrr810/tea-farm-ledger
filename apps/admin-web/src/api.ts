@@ -34,7 +34,7 @@ async function req(path: string, opts: RequestInit = {}) {
     // instead of leaving a live-looking page with a confusing 401 error.
     if (res.status === 401 && hadAdminToken && path !== "/api/admin/login") {
       announceExpiredAdminSession();
-      throw new Error("Your owner session expired. Sign in again.");
+      throw new Error("Your admin session expired. Sign in again.");
     }
     const txt = await res.text().catch(() => "");
     throw new Error(`${res.status} ${txt}`);
@@ -58,7 +58,7 @@ async function authenticatedBlob(path: string): Promise<Blob> {
   if (!res.ok) {
     if (res.status === 401 && hadAdminToken) {
       announceExpiredAdminSession();
-      throw new Error("Your owner session expired. Sign in again.");
+      throw new Error("Your admin session expired. Sign in again.");
     }
     const text = await res.text().catch(() => "");
     throw new Error(`${res.status} ${text}`);
@@ -68,32 +68,46 @@ async function authenticatedBlob(path: string): Promise<Blob> {
 
 export const api = {
   login: (username: string, password: string) => req("/api/admin/login", { method: "POST", body: JSON.stringify({ username, password }) }),
-  registerFarm: async (body: {
-    farm_name: string;
-    owner_username: string;
-    owner_password: string;
-    supervisor_username: string;
-    supervisor_password: string;
-  }) => {
-    // New-farm setup starts before an Owner session exists. Keep it separate
-    // from `req` so a stale browser token cannot make an ordinary signup look
-    // like an expired authenticated request, and so the form gets the server's
-    // plain-language validation message directly.
-    const res = await fetch("/api/admin/register-farm", {
+  platformLogin: async (email: string, password: string) => {
+    const res = await fetch("/api/platform/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ email, password }),
     });
     const result = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {
       throw new Error(
-        typeof result.error === "string"
-          ? result.error
-          : "Farm setup could not be completed. Check the details and try again.",
+        typeof result.error === "string" ? result.error : "Master sign-in could not be completed.",
       );
     }
     return result;
   },
+  platformActivationStatus: () => req("/api/platform/activation-status"),
+  activatePlatformAdmin: (email: string, password: string) =>
+    req("/api/platform/activate", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  createPlatformFarm: (farm_name: string, supervisor_name: string) =>
+    req("/api/platform/farms", {
+      method: "POST",
+      body: JSON.stringify({ farm_name, supervisor_name }),
+    }),
+  generatePlatformSupervisor: (fid: string, supervisor_name: string) =>
+    req(`/api/platform/farms/${fid}/supervisors/generate`, {
+      method: "POST",
+      body: JSON.stringify({ supervisor_name }),
+    }),
+  generatePlatformSupervisorPassword: (fid: string, userId: string) =>
+    req(`/api/platform/farms/${fid}/supervisors/${userId}/generate-password`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  replacePlatformSupervisor: (fid: string, userId: string, supervisorName: string) =>
+    req(`/api/platform/farms/${fid}/supervisors/${userId}/replace`, {
+      method: "POST",
+      body: JSON.stringify({ supervisor_name: supervisorName }),
+    }),
   me: () => req("/api/admin/me"),
   farms: () => req("/api/farms"),
   workers: (fid: string) => req(`/api/farms/${fid}/workers`),
@@ -110,7 +124,7 @@ export const api = {
     if (!res.ok) {
       if (res.status === 401 && hadAdminToken) {
         announceExpiredAdminSession();
-        throw new Error("Your owner session expired. Sign in again.");
+        throw new Error("Your admin session expired. Sign in again.");
       }
       const text = await res.text().catch(() => "");
       throw new Error(`${res.status} ${text}`);

@@ -81,7 +81,7 @@ export async function supervisorRoutes(app: FastifyInstance) {
     const result = await db.query(
       `SELECT user_id, farm_id, username, role, password_hash
          FROM users
-        WHERE farm_id=$1 AND username=$2 AND role='supervisor'
+        WHERE farm_id=$1 AND username=$2 AND role='supervisor' AND disabled_at IS NULL
         LIMIT 1`,
       [farmId, normalized.value],
     );

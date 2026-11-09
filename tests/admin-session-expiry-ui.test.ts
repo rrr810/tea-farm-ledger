@@ -49,7 +49,7 @@ describe("owner-console expired-session handling", () => {
     const onExpired = vi.fn();
     window.addEventListener(ADMIN_SESSION_EXPIRED_EVENT, onExpired);
 
-    await expect(api.me()).rejects.toThrow("Your owner session expired. Sign in again.");
+    await expect(api.me()).rejects.toThrow("Your admin session expired. Sign in again.");
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/admin/me",
       expect.objectContaining({

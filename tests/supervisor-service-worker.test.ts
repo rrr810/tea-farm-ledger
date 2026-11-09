@@ -131,13 +131,13 @@ describe("supervisor PWA service worker", () => {
 
     expect(await response?.text()).toBe("fresh next-day page");
     expect(worker.fetchCalls).toEqual([url]);
-    expect(worker.cacheNames()).toContain("tea-shell-v2");
+    expect(worker.cacheNames()).toContain("tea-shell-v3");
   });
 
   it("falls back to the cached document while offline", async () => {
     const url = "https://tea-farm-ledger.vercel.app/";
     const worker = loadServiceWorker({
-      cached: { "tea-shell-v2": { [url]: "offline daily sheet" } },
+      cached: { "tea-shell-v3": { [url]: "offline daily sheet" } },
       fetchError: new Error("offline"),
     });
 

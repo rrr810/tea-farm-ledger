@@ -205,12 +205,21 @@ export async function fieldDeviceLinkRoutes(app: FastifyInstance) {
     const code = createLinkCode();
     const expiresAt = new Date(Date.now() + LINK_CODE_TTL_MS).toISOString();
     await withTransaction(async (tx) => {
-      await tx.query(
-        `INSERT INTO field_device_link_codes
-           (code_id, farm_id, created_by_user_id, code_hash, expires_at)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [codeId, farmId, admin.userId, digestLinkCode(code), expiresAt],
-      );
+      if (admin.platformAdminId) {
+        await tx.query(
+          `INSERT INTO field_device_link_codes
+             (code_id, farm_id, created_by_user_id, created_by_platform_admin_id, code_hash, expires_at)
+           VALUES ($1,$2,NULL,$3,$4,$5)`,
+          [codeId, farmId, admin.platformAdminId, digestLinkCode(code), expiresAt],
+        );
+      } else {
+        await tx.query(
+          `INSERT INTO field_device_link_codes
+             (code_id, farm_id, created_by_user_id, created_by_platform_admin_id, code_hash, expires_at)
+           VALUES ($1,$2,$3,NULL,$4,$5)`,
+          [codeId, farmId, admin.userId, digestLinkCode(code), expiresAt],
+        );
+      }
       await auditFieldDeviceLink({
         farmId,
         actor: admin.username,
@@ -271,7 +280,7 @@ export async function fieldDeviceLinkRoutes(app: FastifyInstance) {
     const userResult = await db.query(
       `SELECT user_id, farm_id, username, password_hash
          FROM users
-        WHERE farm_id=$1 AND username=$2 AND role='supervisor'
+        WHERE farm_id=$1 AND username=$2 AND role='supervisor' AND disabled_at IS NULL
         LIMIT 1`,
       [farm.farm_id, normalized.value],
     );

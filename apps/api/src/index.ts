@@ -12,6 +12,7 @@ import { adminRoutes } from "./routes/admin.js";
 import { supervisorRoutes } from "./routes/supervisor.js";
 import { supervisorsRoutes } from "./routes/supervisors.js";
 import { fieldDeviceLinkRoutes } from "./routes/field-device-link.js";
+import { platformRoutes } from "./routes/platform.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -69,6 +70,7 @@ export async function buildApp() {
   app.register(cronRoutes);
   app.register(payrollRoutes);
   app.register(adminRoutes);
+  app.register(platformRoutes);
   app.register(supervisorRoutes);
   app.register(supervisorsRoutes);
   app.register(fieldDeviceLinkRoutes);

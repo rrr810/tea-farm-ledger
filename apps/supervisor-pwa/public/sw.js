@@ -1,7 +1,7 @@
 // Keep the app usable offline without trapping a supervisor on an old daily sheet.
 // Navigation is always checked against the network first; Vite assets are hashed
 // and can safely use a cache-first fallback.
-const CACHE_NAME = "tea-shell-v2";
+const CACHE_NAME = "tea-shell-v3";
 const CACHE_PREFIX = "tea-";
 
 function cacheResponse(request, response) {

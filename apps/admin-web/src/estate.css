@@ -276,3 +276,30 @@ button { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 720px) { .worker-profiles-heading, .worker-profile-detail-heading { flex-direction: column; } .worker-profile-detail-grid { grid-template-columns: 1fr; } .worker-profile-detail dl { grid-template-columns: 1fr; } }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+
+/* Central Master-admin creation and credential cards. */
+.new-farm-button { min-height: 32px; padding: 6px 11px; border: 1px solid rgba(232,181,111,.62); border-radius: 999px; background: #e9b873; color: #183d2e; font-size: 11px; font-weight: 850; cursor: pointer; }
+.master-farm-create-fields, .master-activation-form, .master-credential-grid { display: grid; gap: 11px; }
+.master-farm-create-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; margin-top: 16px; }
+.master-farm-create-fields label, .master-activation-form label, .master-credential-grid label, .issued-supervisor-credential label { display: grid; gap: 5px; color: #4c5e50; font-size: 12px; font-weight: 750; }
+.master-farm-create-fields input, .master-activation-form input, .master-credential-grid input, .issued-supervisor-credential input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #d6ccba; border-radius: 9px; background: #fffefa; color: var(--admin-ink); }
+.master-farm-create-fields input:focus, .master-activation-form input:focus, .master-credential-grid input:focus, .issued-supervisor-credential input:focus { outline: none; border-color: var(--admin-leaf); box-shadow: 0 0 0 3px rgba(41,115,86,.14); }
+.master-activation-form { max-width: 620px; margin-top: 16px; }
+.master-activation-form .primary { justify-self: start; }
+.master-activation-message, .master-farm-message { margin: 10px 0 16px; font-size: 12px; line-height: 1.45; }
+.master-credential-card { border-color: #b9d8bc !important; background: linear-gradient(145deg, #f0f8ee, #fffdf8) !important; }
+.master-credential-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 15px; }
+.master-credential-grid input, .issued-supervisor-credential input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em; }
+.master-farm-list { display: grid; gap: 10px; margin-top: 15px; }
+.master-farm-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px; border: 1px solid #dae4d5; border-radius: 12px; background: #f9fcf7; }
+.master-farm-row strong { display: block; color: var(--admin-forest); }
+.master-farm-row span { display: block; margin-top: 3px; color: var(--admin-muted); font-size: 11px; }
+.issued-supervisor-credential { display: grid; gap: 9px; margin-top: 13px; padding: 13px; border: 1px solid #b9d8bc; border-radius: 12px; background: #eff8ec; color: #264f32; font-size: 12px; }
+@media (max-width: 850px) {
+  .master-farm-create-fields { grid-template-columns: 1fr 1fr; }
+  .master-farm-create-fields .primary { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .master-farm-create-fields, .master-credential-grid { grid-template-columns: 1fr; }
+  .master-farm-row { align-items: flex-start; flex-direction: column; }
+}
