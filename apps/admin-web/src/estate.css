@@ -50,6 +50,44 @@ button { -webkit-tap-highlight-color: transparent; }
 .admin-login-kicker::before { content: ""; width: 28px; height: 1px; background: currentColor; }
 .admin-login h2 { color: var(--admin-forest); font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif; font-size: 31px; letter-spacing: -.025em; }
 .admin-login button.primary { width: 100%; min-height: 44px; border-radius: 11px !important; }
+.admin-login-copy { margin: 12px 0 0; color: #4a4a42; font-size: 13px; line-height: 1.55; }
+.admin-login-form, .admin-farm-registration-form { display: grid; gap: 10px; margin-top: 18px; }
+.admin-login input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #d6ccba;
+  border-radius: 10px;
+  background: #fffefa;
+  color: var(--admin-ink);
+  outline: none;
+}
+.admin-login input:focus { border-color: var(--admin-leaf); box-shadow: 0 0 0 3px rgba(41,115,86,.14); }
+.admin-login input:disabled { cursor: not-allowed; opacity: .68; }
+.admin-login-divider { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; color: #768276; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.admin-login-divider::before, .admin-login-divider::after { content: ""; flex: 1; height: 1px; background: #e3dbcb; }
+.admin-login-register-button, .admin-login-link-button {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 13px;
+  border: 1px solid #8da893;
+  border-radius: 10px;
+  background: #f9fcf6;
+  color: var(--admin-leaf);
+  font-size: 12px;
+  font-weight: 800;
+}
+.admin-login-link-button { border-color: transparent; background: transparent; color: #5c6d62; text-decoration: underline; text-underline-offset: 3px; }
+.admin-login-register-button:hover, .admin-login-link-button:hover { border-color: #5b8865; color: var(--admin-forest); }
+.admin-login-register-button:disabled, .admin-login-link-button:disabled { cursor: not-allowed; opacity: .56; }
+.admin-login-message { margin-top: 12px; color: #a04435; font-size: 13px; line-height: 1.45; }
+.admin-login-footer { margin: 14px 0 0; color: #6b6b5e; font-size: 11px; line-height: 1.5; }
+.admin-farm-registration-form { gap: 13px; }
+.admin-farm-registration-form fieldset { display: grid; gap: 9px; min-width: 0; margin: 0; padding: 13px; border: 1px solid #d8e2d3; border-radius: 12px; background: #f8fbf5; }
+.admin-farm-registration-form legend { padding: 0 5px; color: #35653a; font-size: 11px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.admin-farm-registration-form label { display: grid; gap: 5px; color: #4c5e50; font-size: 12px; font-weight: 750; }
+.admin-farm-registration-note { margin: 0; color: #56665a; font-size: 11px; line-height: 1.5; }
+.admin-farm-registration-message { margin: 0; padding: 9px 10px; border: 1px solid #e9b7aa; border-radius: 9px; background: #fff3f0; color: #9a3e2e; font-size: 12px; line-height: 1.45; }
 
 .admin-topbar {
   position: sticky !important;

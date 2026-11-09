@@ -68,6 +68,32 @@ async function authenticatedBlob(path: string): Promise<Blob> {
 
 export const api = {
   login: (username: string, password: string) => req("/api/admin/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  registerFarm: async (body: {
+    farm_name: string;
+    owner_username: string;
+    owner_password: string;
+    supervisor_username: string;
+    supervisor_password: string;
+  }) => {
+    // New-farm setup starts before an Owner session exists. Keep it separate
+    // from `req` so a stale browser token cannot make an ordinary signup look
+    // like an expired authenticated request, and so the form gets the server's
+    // plain-language validation message directly.
+    const res = await fetch("/api/admin/register-farm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const result = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new Error(
+        typeof result.error === "string"
+          ? result.error
+          : "Farm setup could not be completed. Check the details and try again.",
+      );
+    }
+    return result;
+  },
   me: () => req("/api/admin/me"),
   farms: () => req("/api/farms"),
   workers: (fid: string) => req(`/api/farms/${fid}/workers`),

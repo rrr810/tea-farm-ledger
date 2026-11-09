@@ -59,7 +59,7 @@ export function SupervisorAccessPanel({
       await api.createSupervisor(farmId, username, password);
       setUsername("");
       setPassword("");
-      setMessage("Supervisor account provisioned. Share the password privately.");
+      setMessage("Supervisor account provisioned. Share the farm name and credentials privately.");
       await load();
       onDone();
     } catch (error) {
@@ -94,11 +94,12 @@ export function SupervisorAccessPanel({
         borderTop: "1px solid #D9D1BC",
       }}
     >
-      <h3 style={{ marginBottom: 4 }}>Supervisor private-ID access</h3>
+      <h3 style={{ marginBottom: 4 }}>Supervisor account access</h3>
       <p style={{ margin: "0 0 13px", color: "#4A4A42", fontSize: 12, lineHeight: 1.5 }}>
-        Provision a farm-bound field account for the Nandi Supervisor. This grants
-        short-lived access only to record private ID details; daily kg work remains
-        available offline without it. Use a unique password of at least 12 characters.
+        Provision a farm-bound Supervisor account. The Supervisor uses the official
+        farm name plus these credentials once to connect an empty field phone. It also
+        grants short-lived access to private ID tools; daily kg work remains available
+        offline without it. Use a unique password of at least 12 characters.
       </p>
 
       <div

@@ -278,9 +278,20 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(token() ? "dashboard" : "login");
   const [msg, setMsg] = useState("");
 
-  // login state
+  // Login and first-time Owner-led farm setup state. Password values live only
+  // in this component until submitted; they are never written to browser storage.
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const [showFarmRegistration, setShowFarmRegistration] = useState(false);
+  const [newFarmName, setNewFarmName] = useState("");
+  const [newOwnerUsername, setNewOwnerUsername] = useState("");
+  const [newOwnerPassword, setNewOwnerPassword] = useState("");
+  const [confirmOwnerPassword, setConfirmOwnerPassword] = useState("");
+  const [newSupervisorUsername, setNewSupervisorUsername] = useState("");
+  const [newSupervisorPassword, setNewSupervisorPassword] = useState("");
+  const [confirmSupervisorPassword, setConfirmSupervisorPassword] = useState("");
+  const [farmRegistrationBusy, setFarmRegistrationBusy] = useState(false);
+  const [farmRegistrationMessage, setFarmRegistrationMessage] = useState("");
   const [farms, setFarms] = useState<Array<{ farm_id: string; name: string }>>(
     [],
   );
@@ -342,6 +353,77 @@ export default function App() {
       loadFarms();
     } catch (e) {
       toast(String(e));
+    }
+  }
+
+  function clearFarmRegistrationForm() {
+    setNewFarmName("");
+    setNewOwnerUsername("");
+    setNewOwnerPassword("");
+    setConfirmOwnerPassword("");
+    setNewSupervisorUsername("");
+    setNewSupervisorPassword("");
+    setConfirmSupervisorPassword("");
+    setFarmRegistrationMessage("");
+  }
+
+  async function registerNewFarm() {
+    if (farmRegistrationBusy) return;
+    setFarmRegistrationMessage("");
+    if (
+      !newFarmName.trim() ||
+      !newOwnerUsername.trim() ||
+      !newOwnerPassword ||
+      !newSupervisorUsername.trim() ||
+      !newSupervisorPassword
+    ) {
+      setFarmRegistrationMessage("Complete the farm, Owner, and first Supervisor details.");
+      return;
+    }
+    if (newOwnerPassword !== confirmOwnerPassword) {
+      setFarmRegistrationMessage("The Owner passwords do not match.");
+      return;
+    }
+    if (newSupervisorPassword !== confirmSupervisorPassword) {
+      setFarmRegistrationMessage("The Supervisor passwords do not match.");
+      return;
+    }
+
+    setFarmRegistrationBusy(true);
+    try {
+      const result = (await api.registerFarm({
+        farm_name: newFarmName,
+        owner_username: newOwnerUsername,
+        owner_password: newOwnerPassword,
+        supervisor_username: newSupervisorUsername,
+        supervisor_password: newSupervisorPassword,
+      })) as {
+        token?: string;
+        farm_id?: string;
+        name?: string;
+        owner_username?: string;
+      };
+      if (!result.token || !result.farm_id || !result.name || !result.owner_username) {
+        throw new Error("Farm setup returned an incomplete result. Nothing has been opened.");
+      }
+
+      // The newly created Owner is signed in immediately. The API response
+      // intentionally contains no password, and this clears both form secrets.
+      setToken(result.token);
+      setFarmId(result.farm_id);
+      setCurrentFarm(result.farm_id);
+      setFarms([{ farm_id: result.farm_id, name: result.name }]);
+      setUsername(result.owner_username);
+      setPassword("");
+      clearFarmRegistrationForm();
+      setShowFarmRegistration(false);
+      setTab("dashboard");
+      toast("New farm registered. Share the Supervisor sign-in details privately.");
+      await loadFarms();
+    } catch (error) {
+      setFarmRegistrationMessage(String((error as Error).message));
+    } finally {
+      setFarmRegistrationBusy(false);
     }
   }
 
@@ -646,43 +728,214 @@ export default function App() {
     return (
       <div className="admin-login">
         <div className="admin-login-kicker">Tea estate operations</div>
-        <h2 style={{ margin: "10px 0 0" }}>Owner console</h2>
-        <p style={{ color: "#4A4A42", fontSize: 13 }}>
-          Secure access to payroll, field records and audit history. Session 7d.
-          No MFA (deferred per Decision 22).
-        </p>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-            marginTop: 18,
-          }}
-        >
-          <input
-            placeholder="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
-          <input
-            placeholder="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <button className="primary" onClick={doLogin}>
-            Enter estate console
-          </button>
-        </div>
-        {msg && (
-          <div style={{ marginTop: 12, color: "#C62828", fontSize: 13 }}>
-            {msg}
-          </div>
+        <h2 style={{ margin: "10px 0 0" }}>
+          {showFarmRegistration ? "Register a new farm" : "Owner console"}
+        </h2>
+        {showFarmRegistration ? (
+          <>
+            <p className="admin-login-copy">
+              Create a separate Owner account and the first Supervisor account together.
+              Afterwards, the empty field phone only needs the official farm name plus
+              the Supervisor username and password.
+            </p>
+            <form
+              className="admin-farm-registration-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void registerNewFarm();
+              }}
+            >
+              <fieldset>
+                <legend>1. Farm</legend>
+                <label>
+                  Official farm name
+                  <input
+                    aria-label="Official farm name"
+                    autoCapitalize="words"
+                    autoComplete="organization"
+                    placeholder="e.g. Green Hills Tea Farm"
+                    maxLength={80}
+                    value={newFarmName}
+                    disabled={farmRegistrationBusy}
+                    onChange={(event) => setNewFarmName(event.target.value)}
+                  />
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>2. Owner/Admin account</legend>
+                <label>
+                  Owner username
+                  <input
+                    aria-label="New Owner username"
+                    autoCapitalize="none"
+                    autoComplete="username"
+                    placeholder="e.g. greenhills-owner"
+                    minLength={3}
+                    maxLength={32}
+                    value={newOwnerUsername}
+                    disabled={farmRegistrationBusy}
+                    onChange={(event) => setNewOwnerUsername(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Owner password
+                  <input
+                    aria-label="New Owner password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="At least 12 characters"
+                    minLength={12}
+                    maxLength={128}
+                    value={newOwnerPassword}
+                    disabled={farmRegistrationBusy}
+                    onChange={(event) => setNewOwnerPassword(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Repeat Owner password
+                  <input
+                    aria-label="Repeat new Owner password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Repeat the Owner password"
+                    minLength={12}
+                    maxLength={128}
+                    value={confirmOwnerPassword}
+                    disabled={farmRegistrationBusy}
+                    onChange={(event) => setConfirmOwnerPassword(event.target.value)}
+                  />
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>3. First Supervisor account</legend>
+                <label>
+                  Supervisor username
+                  <input
+                    aria-label="First Supervisor username"
+                    autoCapitalize="none"
+                    autoComplete="username"
+                    placeholder="e.g. greenhills-supervisor"
+                    minLength={3}
+                    maxLength={32}
+                    value={newSupervisorUsername}
+                    disabled={farmRegistrationBusy}
+                    onChange={(event) => setNewSupervisorUsername(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Supervisor password
+                  <input
+                    aria-label="First Supervisor password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="At least 12 characters"
+                    minLength={12}
+                    maxLength={128}
+                    value={newSupervisorPassword}
+                    disabled={farmRegistrationBusy}
+                    onChange={(event) => setNewSupervisorPassword(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Repeat Supervisor password
+                  <input
+                    aria-label="Repeat first Supervisor password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Repeat the Supervisor password"
+                    minLength={12}
+                    maxLength={128}
+                    value={confirmSupervisorPassword}
+                    disabled={farmRegistrationBusy}
+                    onChange={(event) => setConfirmSupervisorPassword(event.target.value)}
+                  />
+                </label>
+              </fieldset>
+
+              <p className="admin-farm-registration-note">
+                New farms start at the current default of KES 9 per kg. You can change
+                the rate in Farm Settings before anyone records leaf. Passwords are not
+                shown again after setup, so keep them private and safe.
+              </p>
+              {farmRegistrationMessage && (
+                <p className="admin-farm-registration-message" role="status">
+                  {farmRegistrationMessage}
+                </p>
+              )}
+              <button className="primary" type="submit" disabled={farmRegistrationBusy}>
+                {farmRegistrationBusy ? "Registering farm…" : "Register farm & open console"}
+              </button>
+              <button
+                className="admin-login-link-button"
+                type="button"
+                disabled={farmRegistrationBusy}
+                onClick={() => {
+                  clearFarmRegistrationForm();
+                  setShowFarmRegistration(false);
+                }}
+              >
+                Back to Owner sign in
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <p className="admin-login-copy">
+              Secure access to payroll, field records and audit history. Session 7d.
+              No MFA (deferred per Decision 22).
+            </p>
+            <form
+              className="admin-login-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void doLogin();
+              }}
+            >
+              <input
+                aria-label="Owner username"
+                autoCapitalize="none"
+                autoComplete="username"
+                placeholder="username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              />
+              <input
+                aria-label="Owner password"
+                autoComplete="current-password"
+                placeholder="password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+              <button className="primary" type="submit">
+                Enter estate console
+              </button>
+            </form>
+            {msg && (
+              <div className="admin-login-message" role="status">
+                {msg}
+              </div>
+            )}
+            <div className="admin-login-divider"><span>or</span></div>
+            <button
+              className="admin-login-register-button"
+              type="button"
+              onClick={() => {
+                setMsg("");
+                clearFarmRegistrationForm();
+                setShowFarmRegistration(true);
+              }}
+            >
+              Register a new farm
+            </button>
+            <p className="admin-login-footer">
+              Already registered? Use the Owner credentials set for that farm. All
+              actions are audit-logged.
+            </p>
+          </>
         )}
-        <p style={{ fontSize: 11, color: "#6B6B5E", marginTop: 15 }}>
-          Use the owner credentials set for this farm. All actions are
-          audit-logged.
-        </p>
       </div>
     );
   }

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { getDb } from "@tea-ledger/database";
+import { getDb, withTransaction } from "@tea-ledger/database";
+import { validateFarmName } from "@tea-ledger/core";
 import {
   createHash,
   randomBytes,
@@ -13,9 +14,63 @@ import {
   requireAdminForFarm,
   requireAdminSession,
 } from "../admin-auth.js";
+import {
+  hashSupervisorPassword,
+  normalizeSupervisorUsername,
+  validateSupervisorPassword,
+} from "../supervisor-auth.js";
 
 const scrypt = promisify(scryptCallback);
 const ADMIN_SCRYPT_BYTES = 64;
+const DEFAULT_RATE_CENTS_PER_KG = 900;
+
+type RegisterFarmBody = {
+  farm_name?: unknown;
+  owner_username?: unknown;
+  owner_password?: unknown;
+  supervisor_username?: unknown;
+  supervisor_password?: unknown;
+};
+
+function normalizeOwnerUsername(value: unknown):
+  | { ok: true; value: string }
+  | { ok: false; reason: string } {
+  if (typeof value !== "string") {
+    return { ok: false, reason: "owner username is required" };
+  }
+  const username = value.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9._-]{2,31}$/.test(username)) {
+    return {
+      ok: false,
+      reason:
+        "owner username must be 3–32 lowercase letters, numbers, dots, dashes, or underscores",
+    };
+  }
+  return { ok: true, value: username };
+}
+
+function validateOwnerPassword(value: unknown):
+  | { ok: true; value: string }
+  | { ok: false; reason: string } {
+  if (typeof value !== "string") {
+    return { ok: false, reason: "owner password is required" };
+  }
+  if (value.length < 12 || value.length > 128) {
+    return { ok: false, reason: "owner password must be 12–128 characters" };
+  }
+  if (/[\u0000-\u001F\u007F]/.test(value)) {
+    return { ok: false, reason: "owner password contains unsupported characters" };
+  }
+  return { ok: true, value };
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  return (
+    candidate?.code === "23505" ||
+    /duplicate key|unique constraint|unique violation/i.test(String(candidate?.message ?? error))
+  );
+}
 
 /** New Admin credentials use scrypt. Legacy SHA-256 hashes are upgraded at login. */
 async function hashPassword(password: string): Promise<string> {
@@ -69,12 +124,27 @@ export async function adminRoutes(app: FastifyInstance) {
     const db = await getDb();
     const adminUser = process.env.ADMIN_USERNAME ?? "admin";
     const configuredPassword = process.env.ADMIN_DEFAULT_PASSWORD ?? process.env.ADMIN_PASSWORD;
-    if (!configuredPassword && isProduction()) {
-      throw new Error("ADMIN_DEFAULT_PASSWORD must be configured in production");
-    }
-    const adminPass = configuredPassword ?? "tea-admin-2026"; // development/test only
     const res = await db.query("SELECT user_id, password_hash FROM users WHERE username=$1", [adminUser]);
     if ((res.rows as unknown[]).length > 0) return res.rows[0] as { user_id: string; password_hash: string };
+
+    // A farm registered through the Owner setup wizard has already created its
+    // own Owner account. Do not silently add the configured bootstrap account
+    // to that farm just because somebody signs in later with a different name.
+    const existingOwner = await db.query(
+      "SELECT user_id, password_hash FROM users WHERE role='admin' LIMIT 1",
+    );
+    if ((existingOwner.rows as unknown[]).length > 0) {
+      return existingOwner.rows[0] as { user_id: string; password_hash: string };
+    }
+
+    // Only a completely empty installation needs the configured bootstrap
+    // password. A farm created through the registration wizard must remain
+    // usable even when no legacy bootstrap account has been configured.
+    if (!configuredPassword && isProduction()) {
+      throw new Error("ADMIN_DEFAULT_PASSWORD must be configured in production before bootstrap login");
+    }
+    const adminPass = configuredPassword ?? "tea-admin-2026"; // development/test only
+
     // Need a farm to attach? Create default farm if none
     const farms = await db.query("SELECT farm_id FROM farms LIMIT 1");
     let farmId: string;
@@ -96,6 +166,134 @@ export async function adminRoutes(app: FastifyInstance) {
     const farmId = (req.params as { farmId?: string } | undefined)?.farmId;
     if (!farmId) return;
     await requireAdminForFarm(req, reply, farmId);
+  });
+
+  /**
+   * One-time Owner-led setup for a new farm. It deliberately makes a separate
+   * Owner account and first Supervisor account together, so an empty field
+   * phone can subsequently use only farm name + Supervisor credentials.
+   * Passwords are hashed before the database transaction and never returned,
+   * written to audit detail, or retained by the server after this request.
+   */
+  app.post("/api/admin/register-farm", async (req, reply) => {
+    const body = (req.body ?? {}) as RegisterFarmBody;
+    const rawFarmName = typeof body.farm_name === "string" ? body.farm_name : "";
+    const farmValidation = validateFarmName(rawFarmName);
+    const owner = normalizeOwnerUsername(body.owner_username);
+    const ownerPassword = validateOwnerPassword(body.owner_password);
+    const supervisor = normalizeSupervisorUsername(body.supervisor_username);
+    const supervisorPassword = validateSupervisorPassword(body.supervisor_password);
+
+    if (!farmValidation.valid) return reply.status(400).send({ error: farmValidation.reason });
+    if (!owner.ok) return reply.status(400).send({ error: owner.reason });
+    if (!ownerPassword.ok) return reply.status(400).send({ error: ownerPassword.reason });
+    if (!supervisor.ok) return reply.status(400).send({ error: supervisor.reason });
+    if (!supervisorPassword.ok) return reply.status(400).send({ error: supervisorPassword.reason });
+    if (owner.value === supervisor.value) {
+      return reply.status(400).send({ error: "owner and supervisor usernames must be different" });
+    }
+
+    const name = rawFarmName.trim();
+    const db = await getDb();
+    // The canonical-name reservation written below makes this race-safe. These
+    // early checks provide a useful, plain-language response before costly hashing.
+    const sameName = await db.query(
+      "SELECT farm_id FROM farms WHERE LOWER(BTRIM(name))=LOWER(BTRIM($1)) LIMIT 1",
+      [name],
+    );
+    if ((sameName.rows as unknown[]).length > 0) {
+      return reply.status(409).send({
+        error: "that official farm name is already registered; choose a different name",
+      });
+    }
+    const usedNames = await db.query(
+      "SELECT LOWER(username) AS username FROM users WHERE LOWER(username)=LOWER($1) OR LOWER(username)=LOWER($2)",
+      [owner.value, supervisor.value],
+    );
+    const unavailable = new Set(
+      (usedNames.rows as Array<{ username: string }>).map((row) => row.username),
+    );
+    if (unavailable.has(owner.value)) {
+      return reply.status(409).send({ error: "that owner username is unavailable; choose a different one" });
+    }
+    if (unavailable.has(supervisor.value)) {
+      return reply.status(409).send({ error: "that supervisor username is unavailable; choose a different one" });
+    }
+
+    const [ownerPasswordHash, supervisorPasswordHash] = await Promise.all([
+      hashPassword(ownerPassword.value),
+      hashSupervisorPassword(supervisorPassword.value),
+    ]);
+    const farmId = randomUUID();
+    const ownerUserId = randomUUID();
+    const supervisorUserId = randomUUID();
+    const session = sessionToken();
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
+
+    try {
+      await withTransaction(async (tx) => {
+        await tx.query("INSERT INTO farms (farm_id, name) VALUES ($1,$2)", [farmId, name]);
+        // The reservation is the concurrency-safe canonical-name gate. It is
+        // after the farm insert because it has a foreign key, but both writes
+        // share this transaction so a collision rolls everything back.
+        await tx.query(
+          "INSERT INTO farm_name_reservations (canonical_name, farm_id) VALUES (LOWER(BTRIM($1)),$2)",
+          [name, farmId],
+        );
+        await tx.query(
+          "INSERT INTO rates (farm_id, effective_from, rate_cents_per_kg) VALUES ($1,'2020-01-01',$2)",
+          [farmId, DEFAULT_RATE_CENTS_PER_KG],
+        );
+        await tx.query(
+          `INSERT INTO users (user_id, farm_id, role, username, password_hash)
+           VALUES ($1,$2,'admin',$3,$4)`,
+          [ownerUserId, farmId, owner.value, ownerPasswordHash],
+        );
+        await tx.query(
+          `INSERT INTO users (user_id, farm_id, role, username, password_hash)
+           VALUES ($1,$2,'supervisor',$3,$4)`,
+          [supervisorUserId, farmId, supervisor.value, supervisorPasswordHash],
+        );
+        await tx.query(
+          "INSERT INTO sessions (token, user_id, farm_id, role, expires_at) VALUES ($1,$2,$3,'admin',$4)",
+          [digestAdminSessionToken(session), ownerUserId, farmId, expiresAt],
+        );
+        await tx.query(
+          `INSERT INTO audit_log (farm_id, actor, action, target, detail)
+           VALUES ($1,$2,'farm.registered',$3,$4::jsonb),
+                  ($1,$2,'supervisor.created',$5,$6::jsonb)`,
+          [
+            farmId,
+            owner.value,
+            farmId,
+            JSON.stringify({ setup: "owner_console", initial_rate_cents_per_kg: DEFAULT_RATE_CENTS_PER_KG }),
+            supervisorUserId,
+            JSON.stringify({ setup: "initial_owner_registration" }),
+          ],
+        );
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        // Do not expose a database constraint name or a possibly pre-existing
+        // username. The Owner can simply choose another one and try again.
+        return reply.status(409).send({
+          error: "a farm name or username is already in use; choose different details and try again",
+        });
+      }
+      throw error;
+    }
+
+    return reply.status(201).send({
+      ok: true,
+      farm_id: farmId,
+      name,
+      role: "admin",
+      owner_username: owner.value,
+      supervisor_username: supervisor.value,
+      token: session,
+      expires_at: expiresAt,
+      initial_rate_cents_per_kg: DEFAULT_RATE_CENTS_PER_KG,
+    });
   });
 
   // POST /api/admin/login {username, password} -> {token, user_id, role}

@@ -30,10 +30,27 @@ export async function farmsRoutes(app: FastifyInstance) {
     }
 
     const name = rawName.trim();
+    // New Owner-led registration reserves official names so the normal
+    // farm-name + Supervisor login can select one farm unambiguously. Retain
+    // this legacy field-first endpoint for compatibility, but give it the same
+    // clear conflict behaviour.
+    const db = await getDb();
+    const sameName = await db.query(
+      "SELECT farm_id FROM farms WHERE LOWER(BTRIM(name))=LOWER(BTRIM($1)) LIMIT 1",
+      [name],
+    );
+    if ((sameName.rows as unknown[]).length > 0) {
+      return reply.status(409).send({ error: "that official farm name is already registered" });
+    }
+
     const farmId = randomUUID();
     try {
       const enrolled = await withTransaction(async (db) => {
         await db.query("INSERT INTO farms (farm_id, name) VALUES ($1,$2)", [farmId, name]);
+        await db.query(
+          "INSERT INTO farm_name_reservations (canonical_name, farm_id) VALUES (LOWER(BTRIM($1)),$2)",
+          [name, farmId],
+        );
         await db.query(
           "INSERT INTO rates (farm_id, effective_from, rate_cents_per_kg) VALUES ($1,'2020-01-01',900) ON CONFLICT DO NOTHING",
           [farmId],
@@ -46,8 +63,11 @@ export async function farmsRoutes(app: FastifyInstance) {
       });
       return { farm_id: farmId, name, device_token: enrolled.deviceToken };
     } catch (error) {
+      const message = error instanceof Error ? error.message : "farm registration could not be completed";
       return reply.status(409).send({
-        error: error instanceof Error ? error.message : "farm registration could not be completed",
+        error: /duplicate key|unique constraint|unique violation/i.test(message)
+          ? "that official farm name is already registered"
+          : message,
       });
     }
   });
